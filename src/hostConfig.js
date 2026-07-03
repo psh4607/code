@@ -1,6 +1,11 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {
+  checkManagedCodeApp: checkManagedCodeAppStatus,
+  createManagedCodeAppPaths,
+  ensureManagedCodeApp: ensureManagedCodeAppDefault,
+} = require('./managedCodeApp');
 
 const MANAGED_APPLY_TO_ALL_PROFILES = [
   'terminal.integrated.splitCwd',
@@ -176,10 +181,27 @@ function defaultProjectRoot() {
   return path.resolve(__dirname, '..');
 }
 
-function createDefaultPaths({ home = os.homedir(), projectRoot = defaultProjectRoot() } = {}) {
+function createDefaultPaths({
+  home = os.homedir(),
+  projectRoot = defaultProjectRoot(),
+  applicationsDir = '/Applications',
+  vscodeSourceAppPath = process.env.VSCODE_SOURCE_APP_PATH,
+  vscodeAppPath = process.env.VSCODE_APP_PATH,
+} = {}) {
+  const managedCodeAppPaths = createManagedCodeAppPaths({
+    applicationsDir,
+    sourceAppPath: vscodeSourceAppPath,
+    managedAppPath: vscodeAppPath,
+  });
+  const managedAppPath = managedCodeAppPaths.managedAppPath;
+
   return {
     home,
     projectRoot,
+    applicationsDir,
+    vscodeSourceAppPath: managedCodeAppPaths.sourceAppPath,
+    vscodeAppPath: managedAppPath,
+    managedCodeAppPaths,
     userSettingsPath: path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
     userKeybindingsPath: path.join(
       home,
@@ -201,13 +223,13 @@ function createDefaultPaths({ home = os.homedir(), projectRoot = defaultProjectR
     imeWrapperPath: path.join(home, '.local', 'bin', 'patch-vscode-ime-guard'),
     workbenchPath:
       process.env.VSCODE_WORKBENCH_MAIN ||
-      '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
+      path.join(managedAppPath, 'Contents', 'Resources', 'app', 'out', 'vs', 'workbench', 'workbench.desktop.main.js'),
     workbenchCssPath:
       process.env.VSCODE_WORKBENCH_CSS ||
-      '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css',
+      path.join(managedAppPath, 'Contents', 'Resources', 'app', 'out', 'vs', 'workbench', 'workbench.desktop.main.css'),
     mainPath:
       process.env.VSCODE_MAIN_PATH ||
-      '/Applications/Visual Studio Code.app/Contents/Resources/app/out/main.js',
+      path.join(managedAppPath, 'Contents', 'Resources', 'app', 'out', 'main.js'),
     claudeExtensionsDir: path.join(home, '.vscode', 'extensions'),
     vscodeIconSourcePath:
       process.env.CODEX_VSCODE_ICON_SOURCE || path.join(projectRoot, 'assets', 'warp-glass-sky.icns'),
@@ -215,12 +237,10 @@ function createDefaultPaths({ home = os.homedir(), projectRoot = defaultProjectR
       process.env.CODEX_VSCODE_ICON_PNG_SOURCE || path.join(projectRoot, 'assets', 'warp-glass-sky.png'),
     vscodeIconPath:
       process.env.VSCODE_ICON_PATH ||
-      '/Applications/Visual Studio Code.app/Contents/Resources/Code.icns',
-    vscodeAppPath:
-      process.env.VSCODE_APP_PATH || '/Applications/Visual Studio Code.app',
+      path.join(managedAppPath, 'Contents', 'Resources', 'Code.icns'),
     vscodeDockIconPngPath:
       process.env.VSCODE_DOCK_ICON_PNG_PATH ||
-      '/Applications/Visual Studio Code.app/Contents/Resources/codex-warp-glass-sky.png',
+      path.join(managedAppPath, 'Contents', 'Resources', 'codex-warp-glass-sky.png'),
   };
 }
 
@@ -559,7 +579,11 @@ function writeIfChanged(filePath, nextSource) {
   return { changed: true };
 }
 
-function applyHostConfig({ paths = createDefaultPaths() } = {}) {
+function applyHostConfig({
+  paths = createDefaultPaths(),
+  ensureManagedCodeApp = ensureManagedCodeAppDefault,
+} = {}) {
+  const managedCodeApp = ensureManagedCodeApp({ paths: paths.managedCodeAppPaths });
   const settings = normalizeSettings(readJsoncFile(paths.userSettingsPath, {}));
   const keybindings = normalizeKeybindings(readJsoncFile(paths.userKeybindingsPath, []));
   const zshrc = normalizeZshrc(fs.existsSync(paths.zshrcPath) ? fs.readFileSync(paths.zshrcPath, 'utf8') : '');
@@ -580,6 +604,11 @@ function applyHostConfig({ paths = createDefaultPaths() } = {}) {
   });
 
   const results = [
+    {
+      id: 'managedCodeApp',
+      changed: managedCodeApp.changed,
+      detail: managedCodeApp.detail || managedCodeApp.reason,
+    },
     {
       id: 'settings',
       ...(settings.changed
@@ -834,6 +863,7 @@ function status(id, ok, detail) {
 
 function checkHostConfig({
   paths = createDefaultPaths(),
+  checkManagedCodeApp = true,
   checkWorkbench = true,
   checkClaude = true,
   checkVscodeIcon = true,
@@ -851,6 +881,14 @@ function checkHostConfig({
     ? fs.readFileSync(paths.codexConfigPath, 'utf8')
     : undefined;
   const statuses = [
+  ];
+
+  if (checkManagedCodeApp) {
+    const managedCodeApp = checkManagedCodeAppStatus({ paths: paths.managedCodeAppPaths });
+    statuses.push(status('managedCodeApp', managedCodeApp.ok, managedCodeApp.detail));
+  }
+
+  statuses.push(
     status('settings', Boolean(settings && hasExpectedSettings(settings)), paths.userSettingsPath),
     status('keybindings', Boolean(keybindings && hasExpectedKeybindings(keybindings)), paths.userKeybindingsPath),
     status('zshrc', Boolean(zshrc && hasExpectedZshrc(zshrc)), paths.zshrcPath),
@@ -870,7 +908,7 @@ function checkHostConfig({
       hasExpectedImeWrapper(paths.imeWrapperPath, paths.projectRoot),
       paths.imeWrapperPath,
     ),
-  ];
+  );
 
   if (checkWorkbench) {
     const workbench = checkWorkbenchPatches(paths.workbenchPath);

@@ -4,11 +4,13 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  applyHostConfig,
   checkVscodeDockIconPatch,
   checkVscodeIconPatch,
   checkVscodeWatermarkPatch,
   checkWorkbenchPatches,
   checkHostConfig,
+  createDefaultPaths,
   ensureGlobalPatchWrapper,
   ensureImeGuardPatchWrapper,
   normalizeCodexConfigToml,
@@ -17,6 +19,49 @@ const {
   normalizeZshrc,
   parseJsonc,
 } = require('../src/hostConfig');
+
+test('createDefaultPaths targets the managed Code app for bundle patches', () => {
+  const paths = createDefaultPaths({ home: '/tmp/home', projectRoot: '/tmp/project' });
+
+  assert.equal(paths.vscodeSourceAppPath, '/Applications/Visual Studio Code.app');
+  assert.equal(paths.vscodeAppPath, '/Applications/Code.app');
+  assert.equal(
+    paths.workbenchPath,
+    '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
+  );
+  assert.equal(
+    paths.workbenchCssPath,
+    '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css',
+  );
+  assert.equal(paths.mainPath, '/Applications/Code.app/Contents/Resources/app/out/main.js');
+  assert.equal(paths.vscodeIconPath, '/Applications/Code.app/Contents/Resources/Code.icns');
+  assert.equal(
+    paths.vscodeDockIconPngPath,
+    '/Applications/Code.app/Contents/Resources/codex-warp-glass-sky.png',
+  );
+});
+
+test('applyHostConfig ensures the managed Code app before shared host config', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
+  const home = path.join(tmpDir, 'home');
+  const projectRoot = path.join(tmpDir, 'project');
+  fs.mkdirSync(projectRoot, { recursive: true });
+
+  const results = applyHostConfig({
+    paths: createDefaultPaths({
+      home,
+      projectRoot,
+      applicationsDir: tmpDir,
+    }),
+    ensureManagedCodeApp: () => ({ changed: true, reason: 'managed app missing' }),
+  });
+
+  assert.deepEqual(results[0], {
+    id: 'managedCodeApp',
+    changed: true,
+    detail: 'managed app missing',
+  });
+});
 
 test('normalizeSettings applies managed VS Code settings without dropping existing values', () => {
   const settings = {
@@ -280,6 +325,7 @@ test('checkHostConfig reports managed files as ok', () => {
       workbenchPath: path.join(tmpDir, 'missing-workbench.js'),
       claudeExtensionsDir: path.join(tmpDir, 'missing-claude'),
     },
+    checkManagedCodeApp: false,
     checkWorkbench: false,
     checkClaude: false,
     checkVscodeIcon: false,
