@@ -95,7 +95,8 @@
   "scripts": {
     "apply": "node scripts/apply-host-config.js",
     "doctor": "node scripts/doctor.js",
-    "patch": "npm run patch:vscode-terminal-order && npm run patch:vscode-ime-guard && npm run patch:vscode-icon && npm run patch:vscode-dock-icon && npm run patch:vscode-watermark",
+    "patch": "npm run patch:vscode-terminal-order && npm run patch:vscode-ime-guard && npm run patch:vscode-icon && npm run patch:vscode-dock-icon && npm run patch:vscode-watermark && npm run patch:managed-code-sign",
+    "patch:managed-code-sign": "node scripts/sign-managed-code-app.js",
     "patch:vscode-dock-icon": "node scripts/patch-vscode-dock-icon.js",
     "patch:vscode-icon": "node scripts/patch-vscode-icon.js",
     "patch:vscode-ime-guard": "node scripts/patch-vscode-ime-guard.js",

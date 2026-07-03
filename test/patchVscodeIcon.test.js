@@ -67,7 +67,7 @@ test('patch script is idempotent when the managed icon is already installed', ()
   assert.equal(backups.length, 0);
 });
 
-test('patch script applies a Finder custom icon to app bundles for Dock refreshes', () => {
+test('patch script skips Finder custom icons by default so Code.app can be signed', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-vscode-icon-test-'));
   const appPath = path.join(tmpDir, 'Visual Studio Code.app');
   const resourcesPath = path.join(appPath, 'Contents', 'Resources');
@@ -81,8 +81,8 @@ test('patch script applies a Finder custom icon to app bundles for Dock refreshe
   const result = runPatchScriptWithPng({ sourcePath, pngSourcePath, targetPath });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Applied Finder custom app icon:/);
-  assert.equal(fs.existsSync(path.join(appPath, 'Icon\r')), true);
+  assert.match(result.stdout, /Already patched: .*Code\.icns/);
+  assert.equal(fs.existsSync(path.join(appPath, 'Icon\r')), false);
 
   const secondResult = runPatchScriptWithPng({ sourcePath, pngSourcePath, targetPath });
 

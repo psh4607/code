@@ -16,12 +16,12 @@ normally launches.
 `npm run apply` should:
 
 1. ensure `/Applications/Code.app` exists and is refreshed from the upstream app when needed;
-2. set the managed app display identity to `Code` while preserving VS Code's signed bundle id;
+2. set the managed app display identity to `Code` with the local bundle id `com.seongho.Code`;
 3. normalize the existing shared host settings, keybindings, shell hooks, Codex terminal title,
    extension symlink, and patch wrappers;
 4. apply all bundle, CSS, icon, Dock icon, watermark, IME, and terminal-order patches to
    `/Applications/Code.app`;
-5. run the read-only drift checks against the managed app.
+5. ad-hoc sign the final patched app and run the read-only drift checks against the managed app.
 
 ## Shared User Data
 
@@ -34,10 +34,12 @@ first implementation. Keeping those values intact preserves:
 - `~/.vscode/extensions`;
 - the current `code` CLI behavior and extension ecosystem assumptions.
 
-The macOS bundle id should stay `com.microsoft.VSCode` in this implementation. Testing showed that
-changing only the root bundle id on the copied signed Electron app makes macOS launchd reject the
-app before startup. The separate app boundary is therefore the managed `/Applications/Code.app`
-bundle path, display name, icon, and patch marker rather than a distinct bundle id.
+The macOS bundle id is `com.seongho.Code`, with helper app bundle ids set to
+`com.seongho.Code.helper`. Testing showed that changing only the root bundle id on the copied signed
+Electron app makes macOS launchd reject the app before startup. The working model is to patch the
+root/helper ids and then ad-hoc sign the final patched app after all bundle mutations. Finder custom
+app icon metadata is not applied by default because its resource fork/FinderInfo detritus prevents
+that signing step.
 
 ## App Refresh Policy
 

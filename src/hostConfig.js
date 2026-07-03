@@ -49,9 +49,11 @@ const DEFAULT_CODEX_TERMINAL_TITLE = [
   'activity',
   'project-name',
   'thread-title',
-  CODEX_TERMINAL_TITLE_THREAD_ID,
   'fast-mode',
 ];
+const CODEX_SESSION_REGISTRY_HOOK_MARKER =
+  '#codex-vscode-terminal-tools:session-registry:v1';
+const CODEX_SESSION_REGISTRY_HOOK_EVENT = 'SessionStart';
 
 const MANAGED_KEYBINDINGS = [
   {
@@ -212,6 +214,7 @@ function createDefaultPaths({
       'keybindings.json',
     ),
     codexConfigPath: path.join(home, '.codex', 'config.toml'),
+    codexHooksPath: path.join(home, '.codex', 'hooks.json'),
     zshrcPath: path.join(home, '.zshrc'),
     extensionPath: path.join(
       home,
@@ -483,18 +486,18 @@ function stringifyTomlStringArray(values) {
   return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
 }
 
-function normalizeCodexTerminalTitleComponents(components) {
-  const normalized = components.filter((component) => typeof component === 'string' && component);
-  const value = normalized.length ? [...normalized] : [...DEFAULT_CODEX_TERMINAL_TITLE];
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
 
-  if (!value.includes(CODEX_TERMINAL_TITLE_THREAD_ID)) {
-    const fastModeIndex = value.indexOf('fast-mode');
-    if (fastModeIndex >= 0) {
-      value.splice(fastModeIndex, 0, CODEX_TERMINAL_TITLE_THREAD_ID);
-    } else {
-      value.push(CODEX_TERMINAL_TITLE_THREAD_ID);
-    }
-  }
+function normalizeCodexTerminalTitleComponents(components) {
+  const normalized = components.filter(
+    (component) =>
+      typeof component === 'string' &&
+      component &&
+      component !== CODEX_TERMINAL_TITLE_THREAD_ID,
+  );
+  const value = normalized.length ? [...normalized] : [...DEFAULT_CODEX_TERMINAL_TITLE];
 
   return value;
 }
@@ -517,6 +520,74 @@ function normalizeCodexConfigToml(source = '') {
   return {
     value,
     changed: value !== source,
+  };
+}
+
+function managedCodexSessionRegistryHookCommand(projectRoot) {
+  return [
+    'node',
+    shellQuote(path.join(projectRoot, 'scripts', 'codex-session-registry-hook.js')),
+    CODEX_SESSION_REGISTRY_HOOK_MARKER,
+  ].join(' ');
+}
+
+function isManagedCodexSessionRegistryHook(hook) {
+  return (
+    hook &&
+    typeof hook.command === 'string' &&
+    hook.command.includes(CODEX_SESSION_REGISTRY_HOOK_MARKER)
+  );
+}
+
+function cloneHookGroupWithoutManagedHook(group) {
+  const nextGroup = {
+    ...(group && typeof group === 'object' ? group : {}),
+  };
+  const hooks = Array.isArray(nextGroup.hooks) ? nextGroup.hooks : [];
+  nextGroup.hooks = hooks.filter((hook) => !isManagedCodexSessionRegistryHook(hook));
+  return nextGroup;
+}
+
+function normalizeCodexHooksJson(source = {}, { projectRoot = defaultProjectRoot() } = {}) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? { ...source } : {};
+  const sourceHooks = value.hooks && typeof value.hooks === 'object' && !Array.isArray(value.hooks)
+    ? value.hooks
+    : {};
+  const hooks = {};
+
+  for (const [eventName, groups] of Object.entries(sourceHooks)) {
+    hooks[eventName] = Array.isArray(groups)
+      ? groups.map(cloneHookGroupWithoutManagedHook)
+      : groups;
+  }
+
+  const managedHook = {
+    type: 'command',
+    command: managedCodexSessionRegistryHookCommand(projectRoot),
+  };
+  const sessionStartGroups = Array.isArray(hooks[CODEX_SESSION_REGISTRY_HOOK_EVENT])
+    ? hooks[CODEX_SESSION_REGISTRY_HOOK_EVENT]
+    : [];
+  const wildcardGroup = sessionStartGroups.find(
+    (group) => group && typeof group === 'object' && group.matcher === '*',
+  );
+
+  if (wildcardGroup) {
+    wildcardGroup.hooks = Array.isArray(wildcardGroup.hooks) ? wildcardGroup.hooks : [];
+    wildcardGroup.hooks.push(managedHook);
+  } else {
+    sessionStartGroups.push({
+      matcher: '*',
+      hooks: [managedHook],
+    });
+  }
+
+  hooks[CODEX_SESSION_REGISTRY_HOOK_EVENT] = sessionStartGroups;
+  value.hooks = hooks;
+
+  return {
+    value,
+    changed: !deepEqual(source, value),
   };
 }
 
@@ -590,6 +661,9 @@ function applyHostConfig({
   const codexConfig = normalizeCodexConfigToml(
     fs.existsSync(paths.codexConfigPath) ? fs.readFileSync(paths.codexConfigPath, 'utf8') : '',
   );
+  const codexHooks = normalizeCodexHooksJson(readJsoncFile(paths.codexHooksPath, {}), {
+    projectRoot: paths.projectRoot,
+  });
   const wrapper = ensureGlobalPatchWrapper({
     wrapperPath: paths.wrapperPath,
     projectRoot: paths.projectRoot,
@@ -629,6 +703,12 @@ function applyHostConfig({
       id: 'codexConfig',
       ...(codexConfig.changed
         ? writeIfChanged(paths.codexConfigPath, codexConfig.value)
+        : { changed: false }),
+    },
+    {
+      id: 'codexHooks',
+      ...(codexHooks.changed
+        ? writeIfChanged(paths.codexHooksPath, stringifyJson(codexHooks.value))
         : { changed: false }),
     },
     {
@@ -678,7 +758,15 @@ function hasExpectedCodexConfig(source) {
     return false;
   }
 
-  return parseTomlStringArray(match[1]).includes(CODEX_TERMINAL_TITLE_THREAD_ID);
+  return !parseTomlStringArray(match[1]).includes(CODEX_TERMINAL_TITLE_THREAD_ID);
+}
+
+function hasExpectedCodexHooks(source, { projectRoot = defaultProjectRoot() } = {}) {
+  if (!source || typeof source !== 'object') {
+    return false;
+  }
+
+  return !normalizeCodexHooksJson(source, { projectRoot }).changed;
 }
 
 function hasExpectedWrapper(wrapperPath, projectRoot) {
@@ -797,21 +885,9 @@ function checkVscodeIconPatch({ sourcePath, targetPath, appBundlePath }) {
     };
   }
 
-  if (appBundlePath && fs.existsSync(appBundlePath)) {
-    const customIconPath = path.join(appBundlePath, 'Icon\r');
-    if (!fs.existsSync(customIconPath)) {
-      return {
-        ok: false,
-        detail: 'VS Code Finder custom app icon missing',
-      };
-    }
-  }
-
   return {
     ok: true,
-    detail: appBundlePath
-      ? 'VS Code icon and Finder custom app icon match managed Warp Glass Sky icon'
-      : 'VS Code icon matches managed Warp Glass Sky icon',
+    detail: 'VS Code icon matches managed Warp Glass Sky icon',
   };
 }
 
@@ -880,6 +956,9 @@ function checkHostConfig({
   const codexConfig = fs.existsSync(paths.codexConfigPath)
     ? fs.readFileSync(paths.codexConfigPath, 'utf8')
     : undefined;
+  const codexHooks = fs.existsSync(paths.codexHooksPath)
+    ? readJsoncFile(paths.codexHooksPath, {})
+    : undefined;
   const statuses = [
   ];
 
@@ -896,6 +975,11 @@ function checkHostConfig({
       'codexConfig',
       Boolean(codexConfig && hasExpectedCodexConfig(codexConfig)),
       paths.codexConfigPath,
+    ),
+    status(
+      'codexHooks',
+      Boolean(codexHooks && hasExpectedCodexHooks(codexHooks, { projectRoot: paths.projectRoot })),
+      paths.codexHooksPath,
     ),
     status(
       'extension',
@@ -960,6 +1044,7 @@ module.exports = {
   ensureExtensionLink,
   ensureGlobalPatchWrapper,
   ensureImeGuardPatchWrapper,
+  normalizeCodexHooksJson,
   normalizeKeybindings,
   normalizeCodexConfigToml,
   normalizeSettings,

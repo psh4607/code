@@ -4,7 +4,7 @@
 
 **Goal:** Make `npm run apply` create or refresh `/Applications/Code.app`, then apply all managed VS Code patches to that custom app while sharing existing VS Code user data.
 
-**Architecture:** Add a small managed-app module that owns app-path resolution, source metadata, marker generation, copy/refresh, and bundle identity checks. Keep shared user settings in `hostConfig.js`, but retarget patch paths from the official app to the managed `Code.app`. Keep patch scripts environment-overridable for tests and manual recovery.
+**Architecture:** Add a small managed-app module that owns app-path resolution, source metadata, marker generation, copy/refresh, bundle identity checks, and final ad-hoc signing. Keep shared user settings in `hostConfig.js`, but retarget patch paths from the official app to the managed `Code.app`. Keep patch scripts environment-overridable for tests and manual recovery.
 
 **Tech Stack:** Node.js CommonJS, macOS `.app` bundles, `Info.plist` edited through `/usr/libexec/PlistBuddy`, existing `node:test` tests, existing shell-driven patch scripts.
 
@@ -12,9 +12,10 @@
 
 ## File Structure
 
-- Create `src/managedCodeApp.js`: path helpers, metadata readers, marker JSON, refresh decision, app copy, display-name patching, launch-compatible bundle id preservation, and doctor status.
+- Create `src/managedCodeApp.js`: path helpers, metadata readers, marker JSON, refresh decision, app copy, `com.seongho.Code` identity patching, helper identity patching, ad-hoc signing, and doctor status.
 - Modify `src/hostConfig.js`: default paths should point patch targets at `/Applications/Code.app`; export managed-app checks and call them from `applyHostConfig`/`checkHostConfig`.
 - Modify `scripts/apply-host-config.js`: ensure the managed app before running patch scripts.
+- Add `scripts/sign-managed-code-app.js`: ad-hoc sign the final patched app after removing Finder custom icon detritus.
 - Modify `scripts/patch-vscode-terminal-order.js`, `scripts/patch-vscode-ime-guard.js`, `scripts/patch-vscode-watermark.js`, `scripts/patch-vscode-icon.js`, `scripts/patch-vscode-dock-icon.js`: default to managed app paths.
 - Modify `scripts/doctor.js`: no functional split needed if `checkHostConfig` reports the managed app.
 - Modify `test/hostConfig.test.js`: add default-path, apply, and doctor checks for `Code.app`.

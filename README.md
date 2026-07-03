@@ -37,8 +37,9 @@ npm run apply
 
 The managed app intentionally shares the existing VS Code user data and extensions:
 `/Users/seongho/Library/Application Support/Code/User` and `~/.vscode/extensions`.
-It also intentionally keeps VS Code's signed `com.microsoft.VSCode` bundle id; changing that id on
-the copied Electron bundle prevents macOS from launching it.
+It uses the separate local bundle id `com.seongho.Code`. Because the managed app is locally patched
+after being copied from VS Code, the patch sequence finishes by ad-hoc signing `/Applications/Code.app`
+so macOS does not treat the changed bundle as damaged.
 
 The managed terminal settings keep VS Code's persistent terminal sessions enabled and set
 `terminal.integrated.persistentSessionReviveProcess` to `onExitAndWindowClose`, so normal VS Code
@@ -126,11 +127,10 @@ patch-vscode-terminal-order
 ```
 
 Run it again after a VS Code update. The patch backs up the current `Code.icns` inside
-`/Applications/Code.app` before overwriting it. It also applies the same image as a Finder custom app
-icon on the managed `.app` bundle, which helps Dock and Finder pick up the icon when macOS ignores
-the changed `CFBundleIconFile` resource. For the running Dock tile, the full patch command also
-patches `Code.app`'s Electron main bundle so startup calls `app.dock.setIcon(...)` with the managed
-PNG:
+`/Applications/Code.app` before overwriting it. The patch does not apply a Finder custom icon by
+default because that writes resource-fork/FinderInfo metadata that prevents the managed app from
+being ad-hoc signed. For the running Dock tile, the full patch command patches `Code.app`'s Electron
+main bundle so startup calls `app.dock.setIcon(...)` with the managed PNG:
 
 ```sh
 npm run patch:vscode-dock-icon

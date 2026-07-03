@@ -13,6 +13,7 @@ const {
   createDefaultPaths,
   ensureGlobalPatchWrapper,
   ensureImeGuardPatchWrapper,
+  normalizeCodexHooksJson,
   normalizeCodexConfigToml,
   normalizeKeybindings,
   normalizeSettings,
@@ -211,10 +212,10 @@ test('normalizeZshrc upgrades the cwd-title hook to the managed block', () => {
   assert.equal(value.includes('# User configuration'), true);
 });
 
-test('normalizeCodexConfigToml keeps Codex thread id in terminal titles', () => {
+test('normalizeCodexConfigToml removes Codex thread id from terminal titles', () => {
   const source = [
     'model = "gpt-5"',
-    'terminal_title = ["activity", "project-name", "thread-title", "fast-mode"]',
+    'terminal_title = ["activity", "project-name", "thread-title", "thread-id", "fast-mode"]',
     'status_line = ["model-with-reasoning", "thread-id", "fast-mode"]',
     '',
   ].join('\n');
@@ -224,11 +225,67 @@ test('normalizeCodexConfigToml keeps Codex thread id in terminal titles', () => 
   assert.equal(changed, true);
   assert.equal(
     value.includes(
-      'terminal_title = ["activity", "project-name", "thread-title", "thread-id", "fast-mode"]',
+      'terminal_title = ["activity", "project-name", "thread-title", "fast-mode"]',
     ),
     true,
   );
   assert.equal(value.includes('status_line = ["model-with-reasoning", "thread-id", "fast-mode"]'), true);
+});
+
+test('normalizeCodexHooksJson appends the managed SessionStart hook', () => {
+  const existing = {
+    hooks: {
+      SessionStart: [
+        {
+          matcher: '*',
+          hooks: [
+            {
+              type: 'command',
+              command: 'node /Users/seongho/.loom/hooks/loom-state-bridge.js #loom-state-bridge:v1',
+            },
+          ],
+        },
+      ],
+      Stop: [
+        {
+          matcher: '*',
+          hooks: [
+            {
+              type: 'command',
+              command: 'node /Users/seongho/.loom/hooks/loom-state-bridge.js #loom-state-bridge:v1',
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const { value, changed } = normalizeCodexHooksJson(existing, {
+    projectRoot: '/tmp/codex-vscode-terminal-tools',
+  });
+
+  assert.equal(changed, true);
+  assert.equal(value.hooks.SessionStart.length, 1);
+  assert.deepEqual(value.hooks.Stop, existing.hooks.Stop);
+  assert.equal(value.hooks.SessionStart[0].hooks.length, 2);
+  assert.equal(
+    value.hooks.SessionStart[0].hooks[0].command,
+    'node /Users/seongho/.loom/hooks/loom-state-bridge.js #loom-state-bridge:v1',
+  );
+  assert.match(
+    value.hooks.SessionStart[0].hooks[1].command,
+    /^node '\/tmp\/codex-vscode-terminal-tools\/scripts\/codex-session-registry-hook\.js' #codex-vscode-terminal-tools:session-registry:v1$/,
+  );
+
+  assert.deepEqual(
+    normalizeCodexHooksJson(value, {
+      projectRoot: '/tmp/codex-vscode-terminal-tools',
+    }),
+    {
+      value,
+      changed: false,
+    },
+  );
 });
 
 test('ensureGlobalPatchWrapper writes a wrapper that applies every local patch', () => {
@@ -394,7 +451,7 @@ test('checkVscodeIconPatch reports whether the managed icon is installed', () =>
   });
 });
 
-test('checkVscodeIconPatch requires the Finder custom app icon when checking an app bundle', () => {
+test('checkVscodeIconPatch does not require a Finder custom app icon for signed Code.app', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
   const appBundlePath = path.join(tmpDir, 'Visual Studio Code.app');
   const sourcePath = path.join(tmpDir, 'warp-glass-sky.icns');
@@ -404,14 +461,8 @@ test('checkVscodeIconPatch requires the Finder custom app icon when checking an 
   fs.writeFileSync(targetPath, Buffer.from('managed-icon'));
 
   assert.deepEqual(checkVscodeIconPatch({ sourcePath, targetPath, appBundlePath }), {
-    ok: false,
-    detail: 'VS Code Finder custom app icon missing',
-  });
-
-  fs.writeFileSync(path.join(appBundlePath, 'Icon\r'), Buffer.from('custom-icon'));
-  assert.deepEqual(checkVscodeIconPatch({ sourcePath, targetPath, appBundlePath }), {
     ok: true,
-    detail: 'VS Code icon and Finder custom app icon match managed Warp Glass Sky icon',
+    detail: 'VS Code icon matches managed Warp Glass Sky icon',
   });
 });
 

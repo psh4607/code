@@ -5,12 +5,20 @@ const path = require('node:path');
 const DEFAULT_APPLICATIONS_DIR = '/Applications';
 const SOURCE_APP_NAME = 'Visual Studio Code.app';
 const MANAGED_APP_NAME = 'Code.app';
-// Keep the signed VS Code bundle identifier. Changing the root bundle id on the
-// copied Electron app makes macOS launchd kill the app before startup.
-const MANAGED_BUNDLE_ID = 'com.microsoft.VSCode';
+const MANAGED_BUNDLE_ID = 'com.seongho.Code';
+const MANAGED_HELPER_BUNDLE_ID = 'com.seongho.Code.helper';
 const MANAGED_BUNDLE_DISPLAY_NAME = 'Code';
+// Preserve entitlements such as JIT, but let codesign regenerate the identifier
+// and avoid preserving hardened-runtime library validation from Microsoft's app.
+const MANAGED_CODE_SIGN_PRESERVE_METADATA = 'entitlements';
 const CODEX_MANAGED_APP_MARKER_RELATIVE_PATH =
   'Contents/Resources/app/codex-managed-code-app.json';
+const MANAGED_HELPER_INFO_PLIST_RELATIVE_PATHS = [
+  'Contents/Frameworks/Code Helper.app/Contents/Info.plist',
+  'Contents/Frameworks/Code Helper (GPU).app/Contents/Info.plist',
+  'Contents/Frameworks/Code Helper (Plugin).app/Contents/Info.plist',
+  'Contents/Frameworks/Code Helper (Renderer).app/Contents/Info.plist',
+];
 
 function createManagedCodeAppPaths({
   applicationsDir = DEFAULT_APPLICATIONS_DIR,
@@ -133,6 +141,21 @@ function patchManagedAppIdentity({ infoPlistPath, execFileSync }) {
   }
 }
 
+function patchManagedHelperIdentity({ managedAppPath, execFileSync }) {
+  for (const relativePath of MANAGED_HELPER_INFO_PLIST_RELATIVE_PATHS) {
+    const infoPlistPath = path.join(managedAppPath, relativePath);
+    if (!fs.existsSync(infoPlistPath)) {
+      continue;
+    }
+    setPlistString({
+      infoPlistPath,
+      key: 'CFBundleIdentifier',
+      value: MANAGED_HELPER_BUNDLE_ID,
+      execFileSync,
+    });
+  }
+}
+
 function refreshLaunchServices({ managedAppPath, spawnSync }) {
   const now = new Date();
   try {
@@ -146,12 +169,52 @@ function refreshLaunchServices({ managedAppPath, spawnSync }) {
   }
 }
 
-function clearQuarantine({ managedAppPath, execFileSync }) {
+function clearGatekeeperAttributes({ managedAppPath, execFileSync }) {
+  for (const attribute of ['com.apple.quarantine', 'com.apple.provenance']) {
+    try {
+      execFileSync('/usr/bin/xattr', ['-dr', attribute, managedAppPath], {
+        stdio: 'ignore',
+      });
+    } catch {}
+  }
+}
+
+function removeCodeSigningDetritus({ managedAppPath, execFileSync }) {
+  fs.rmSync(path.join(managedAppPath, 'Icon\r'), { force: true });
   try {
-    execFileSync('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', managedAppPath], {
+    execFileSync('/usr/bin/xattr', ['-d', 'com.apple.FinderInfo', managedAppPath], {
       stdio: 'ignore',
     });
   } catch {}
+}
+
+function signManagedCodeApp({
+  paths = createManagedCodeAppPaths(),
+  execFileSync = childProcess.execFileSync,
+  spawnSync = childProcess.spawnSync,
+} = {}) {
+  if (!fs.existsSync(paths.managedAppPath)) {
+    throw new Error(`Managed Code.app missing: ${paths.managedAppPath}`);
+  }
+
+  removeCodeSigningDetritus({ managedAppPath: paths.managedAppPath, execFileSync });
+  clearGatekeeperAttributes({ managedAppPath: paths.managedAppPath, execFileSync });
+  execFileSync(
+    '/usr/bin/codesign',
+    [
+      '--force',
+      '--deep',
+      '--sign',
+      '-',
+      `--preserve-metadata=${MANAGED_CODE_SIGN_PRESERVE_METADATA}`,
+      paths.managedAppPath,
+    ],
+    { stdio: 'inherit' },
+  );
+  clearGatekeeperAttributes({ managedAppPath: paths.managedAppPath, execFileSync });
+  refreshLaunchServices({ managedAppPath: paths.managedAppPath, spawnSync });
+
+  return { changed: true, reason: 'managed app signed' };
 }
 
 function ensureManagedCodeApp({
@@ -180,7 +243,7 @@ function ensureManagedCodeApp({
   });
 
   if (!decision.refresh) {
-    clearQuarantine({ managedAppPath: paths.managedAppPath, execFileSync });
+    clearGatekeeperAttributes({ managedAppPath: paths.managedAppPath, execFileSync });
     return { changed: false, reason: decision.reason };
   }
 
@@ -188,10 +251,14 @@ function ensureManagedCodeApp({
   execFileSync('/bin/cp', ['-R', paths.sourceAppPath, paths.managedAppPath], {
     stdio: 'ignore',
   });
-  clearQuarantine({ managedAppPath: paths.managedAppPath, execFileSync });
+  clearGatekeeperAttributes({ managedAppPath: paths.managedAppPath, execFileSync });
 
   patchManagedAppIdentity({
     infoPlistPath: paths.infoPlistPath,
+    execFileSync,
+  });
+  patchManagedHelperIdentity({
+    managedAppPath: paths.managedAppPath,
     execFileSync,
   });
 
@@ -250,13 +317,16 @@ function checkManagedCodeApp({ paths = createManagedCodeAppPaths() } = {}) {
 
 module.exports = {
   CODEX_MANAGED_APP_MARKER_RELATIVE_PATH,
+  MANAGED_CODE_SIGN_PRESERVE_METADATA,
   MANAGED_BUNDLE_DISPLAY_NAME,
   MANAGED_BUNDLE_ID,
+  MANAGED_HELPER_BUNDLE_ID,
   buildManagedAppMarker,
   checkManagedCodeApp,
   createManagedCodeAppPaths,
   ensureManagedCodeApp,
   readAppInfo,
   readManagedAppMarker,
+  signManagedCodeApp,
   shouldRefreshManagedApp,
 };

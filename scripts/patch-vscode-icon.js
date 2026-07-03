@@ -13,7 +13,9 @@ const pngSourcePath =
 const targetPath =
   process.env.VSCODE_ICON_PATH ||
   '/Applications/Code.app/Contents/Resources/Code.icns';
-const skipFinderCustomIcon = process.env.CODEX_VSCODE_ICON_SKIP_FINDER_CUSTOM_ICON === '1';
+const enableFinderCustomIcon =
+  process.env.CODEX_VSCODE_ICON_ENABLE_FINDER_CUSTOM_ICON === '1' &&
+  process.env.CODEX_VSCODE_ICON_SKIP_FINDER_CUSTOM_ICON !== '1';
 
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
@@ -56,7 +58,7 @@ function refreshAppRegistration(appBundlePath) {
 }
 
 function ensureFinderCustomIcon({ appBundlePath, force = false }) {
-  if (!appBundlePath || skipFinderCustomIcon) {
+  if (!appBundlePath || !enableFinderCustomIcon) {
     return { state: 'skipped' };
   }
 
