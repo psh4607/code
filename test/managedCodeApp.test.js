@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -8,7 +9,10 @@ const {
   MANAGED_BUNDLE_DISPLAY_NAME,
   MANAGED_BUNDLE_ID,
   buildManagedAppMarker,
+  checkManagedCodeApp,
   createManagedCodeAppPaths,
+  ensureManagedCodeApp,
+  readAppInfo,
   shouldRefreshManagedApp,
 } = require('../src/managedCodeApp');
 
@@ -117,6 +121,93 @@ test('shouldRefreshManagedApp refreshes missing, stale, or wrong-identity manage
   );
 });
 
-module.exports = {
-  makeApp,
-};
+test('ensureManagedCodeApp copies upstream app, patches identity, and writes marker', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-managed-code-app-test-'));
+  const sourceAppPath = path.join(tmpDir, 'Visual Studio Code.app');
+  const managedAppPath = path.join(tmpDir, 'Code.app');
+  makeApp(sourceAppPath);
+  const calls = [];
+
+  const result = ensureManagedCodeApp({
+    paths: createManagedCodeAppPaths({ sourceAppPath, managedAppPath }),
+    now: () => new Date('2026-07-03T00:00:00.000Z'),
+    execFileSync: (command, args, options) => {
+      calls.push([command, args]);
+      return childProcess.execFileSync(command, args, options);
+    },
+    spawnSync: () => ({ status: 0 }),
+  });
+
+  const markerPath = path.join(managedAppPath, CODEX_MANAGED_APP_MARKER_RELATIVE_PATH);
+  const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+  const managedInfo = readAppInfo(managedAppPath);
+
+  assert.equal(result.changed, true);
+  assert.equal(result.reason, 'managed app missing');
+  assert.equal(managedInfo.bundleId, MANAGED_BUNDLE_ID);
+  assert.equal(managedInfo.displayName, MANAGED_BUNDLE_DISPLAY_NAME);
+  assert.equal(managedInfo.name, MANAGED_BUNDLE_DISPLAY_NAME);
+  assert.equal(marker.sourceShortVersion, '1.127.0');
+  assert.deepEqual(calls[0], ['/bin/rm', ['-rf', managedAppPath]]);
+  assert.deepEqual(calls[1], ['/bin/cp', ['-R', sourceAppPath, managedAppPath]]);
+});
+
+test('ensureManagedCodeApp is idempotent when marker and identity are current', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-managed-code-app-test-'));
+  const sourceAppPath = path.join(tmpDir, 'Visual Studio Code.app');
+  const managedAppPath = path.join(tmpDir, 'Code.app');
+  makeApp(sourceAppPath);
+  makeApp(managedAppPath, {
+    bundleId: MANAGED_BUNDLE_ID,
+    displayName: MANAGED_BUNDLE_DISPLAY_NAME,
+    name: MANAGED_BUNDLE_DISPLAY_NAME,
+  });
+  fs.writeFileSync(
+    path.join(managedAppPath, CODEX_MANAGED_APP_MARKER_RELATIVE_PATH),
+    `${JSON.stringify(
+      buildManagedAppMarker({
+        sourceAppPath,
+        managedAppPath,
+        sourceInfo: readAppInfo(sourceAppPath),
+        refreshedAt: '2026-07-03T00:00:00.000Z',
+      }),
+      null,
+      2,
+    )}\n`,
+  );
+  const calls = [];
+
+  const result = ensureManagedCodeApp({
+    paths: createManagedCodeAppPaths({ sourceAppPath, managedAppPath }),
+    execFileSync: (command, args) => calls.push([command, args]),
+    spawnSync: () => ({ status: 0 }),
+  });
+
+  assert.equal(result.changed, false);
+  assert.equal(result.reason, 'managed app current');
+  assert.deepEqual(calls, []);
+});
+
+test('checkManagedCodeApp reports missing and current managed app states', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-managed-code-app-test-'));
+  const sourceAppPath = path.join(tmpDir, 'Visual Studio Code.app');
+  const managedAppPath = path.join(tmpDir, 'Code.app');
+  const paths = createManagedCodeAppPaths({ sourceAppPath, managedAppPath });
+  makeApp(sourceAppPath);
+
+  assert.deepEqual(checkManagedCodeApp({ paths }), {
+    ok: false,
+    detail: `managed Code.app missing: ${managedAppPath}`,
+  });
+
+  ensureManagedCodeApp({
+    paths,
+    execFileSync: (command, args, options) => childProcess.execFileSync(command, args, options),
+    spawnSync: () => ({ status: 0 }),
+  });
+
+  assert.deepEqual(checkManagedCodeApp({ paths }), {
+    ok: true,
+    detail: 'managed Code.app is current',
+  });
+});

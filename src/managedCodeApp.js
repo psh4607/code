@@ -53,6 +53,18 @@ function readAppInfo(appPath) {
   };
 }
 
+function readManagedAppMarker(markerPath) {
+  if (!fs.existsSync(markerPath)) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
 function buildManagedAppMarker({ sourceAppPath, managedAppPath, sourceInfo, refreshedAt }) {
   return {
     managedBy: 'codex-vscode-terminal-tools',
@@ -89,12 +101,135 @@ function shouldRefreshManagedApp({ sourceInfo, managedExists, managedInfo, marke
   return { refresh: false, reason: 'managed app current' };
 }
 
-function ensureManagedCodeApp() {
-  throw new Error('ensureManagedCodeApp not implemented');
+function setPlistString({ infoPlistPath, key, value, execFileSync }) {
+  try {
+    execFileSync('/usr/libexec/PlistBuddy', ['-c', `Set :${key} ${value}`, infoPlistPath], {
+      stdio: 'ignore',
+    });
+  } catch {
+    execFileSync(
+      '/usr/libexec/PlistBuddy',
+      ['-c', `Add :${key} string ${value}`, infoPlistPath],
+      {
+        stdio: 'ignore',
+      },
+    );
+  }
 }
 
-function checkManagedCodeApp() {
-  throw new Error('checkManagedCodeApp not implemented');
+function patchManagedAppIdentity({ infoPlistPath, execFileSync }) {
+  for (const [key, value] of [
+    ['CFBundleIdentifier', MANAGED_BUNDLE_ID],
+    ['CFBundleDisplayName', MANAGED_BUNDLE_DISPLAY_NAME],
+    ['CFBundleName', MANAGED_BUNDLE_DISPLAY_NAME],
+  ]) {
+    setPlistString({ infoPlistPath, key, value, execFileSync });
+  }
+}
+
+function refreshLaunchServices({ managedAppPath, spawnSync }) {
+  const now = new Date();
+  try {
+    fs.utimesSync(managedAppPath, now, now);
+  } catch {}
+
+  const lsregister =
+    '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
+  if (fs.existsSync(lsregister)) {
+    spawnSync(lsregister, ['-f', managedAppPath], { stdio: 'ignore' });
+  }
+}
+
+function ensureManagedCodeApp({
+  paths = createManagedCodeAppPaths(),
+  execFileSync = childProcess.execFileSync,
+  spawnSync = childProcess.spawnSync,
+  now = () => new Date(),
+} = {}) {
+  if (!fs.existsSync(paths.sourceAppPath)) {
+    throw new Error(`Upstream Visual Studio Code app missing: ${paths.sourceAppPath}`);
+  }
+
+  const sourceInfo = readAppInfo(paths.sourceAppPath);
+  if (!sourceInfo) {
+    throw new Error(`Upstream Visual Studio Code Info.plist missing: ${paths.sourceAppPath}`);
+  }
+
+  const managedExists = fs.existsSync(paths.managedAppPath);
+  const managedInfo = managedExists ? readAppInfo(paths.managedAppPath) : undefined;
+  const marker = readManagedAppMarker(paths.markerPath);
+  const decision = shouldRefreshManagedApp({
+    sourceInfo,
+    managedExists,
+    managedInfo,
+    marker,
+  });
+
+  if (!decision.refresh) {
+    return { changed: false, reason: decision.reason };
+  }
+
+  execFileSync('/bin/rm', ['-rf', paths.managedAppPath], { stdio: 'ignore' });
+  execFileSync('/bin/cp', ['-R', paths.sourceAppPath, paths.managedAppPath], {
+    stdio: 'ignore',
+  });
+
+  patchManagedAppIdentity({
+    infoPlistPath: paths.infoPlistPath,
+    execFileSync,
+  });
+
+  const refreshedAt = now().toISOString();
+  const markerValue = buildManagedAppMarker({
+    sourceAppPath: paths.sourceAppPath,
+    managedAppPath: paths.managedAppPath,
+    sourceInfo,
+    refreshedAt,
+  });
+
+  fs.mkdirSync(path.dirname(paths.markerPath), { recursive: true });
+  fs.writeFileSync(paths.markerPath, `${JSON.stringify(markerValue, null, 2)}\n`);
+  refreshLaunchServices({ managedAppPath: paths.managedAppPath, spawnSync });
+
+  return { changed: true, reason: decision.reason };
+}
+
+function checkManagedCodeApp({ paths = createManagedCodeAppPaths() } = {}) {
+  if (!fs.existsSync(paths.sourceAppPath)) {
+    return {
+      ok: false,
+      detail: `upstream Visual Studio Code app missing: ${paths.sourceAppPath}`,
+    };
+  }
+
+  if (!fs.existsSync(paths.managedAppPath)) {
+    return {
+      ok: false,
+      detail: `managed Code.app missing: ${paths.managedAppPath}`,
+    };
+  }
+
+  const sourceInfo = readAppInfo(paths.sourceAppPath);
+  const managedInfo = readAppInfo(paths.managedAppPath);
+  const marker = readManagedAppMarker(paths.markerPath);
+  const decision = shouldRefreshManagedApp({
+    sourceInfo,
+    managedExists: true,
+    managedInfo,
+    marker,
+  });
+
+  if (decision.refresh) {
+    return {
+      ok: false,
+      detail: `managed Code.app stale: ${decision.reason}`,
+    };
+  }
+
+  return {
+    ok: true,
+    detail: 'managed Code.app is current',
+  };
 }
 
 module.exports = {
@@ -106,5 +241,6 @@ module.exports = {
   createManagedCodeAppPaths,
   ensureManagedCodeApp,
   readAppInfo,
+  readManagedAppMarker,
   shouldRefreshManagedApp,
 };
