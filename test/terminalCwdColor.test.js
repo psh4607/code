@@ -147,6 +147,31 @@ test('manager updates the active terminal icon color when cwd changes', async ()
   ]);
 });
 
+test('manager assigns unique fallback colors to the first six distinct cwds', async () => {
+  const activeTerminal = terminalWithCwd('/tmp/project-0');
+  const fake = createFakeVscode({
+    activeTerminal,
+    rules: [],
+  });
+  const manager = createTerminalCwdColorManager(fake.vscode, {
+    scheduleDelayMs: 0,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  for (let index = 1; index < 6; index += 1) {
+    activeTerminal.shellIntegration.cwd.fsPath = `/tmp/project-${index}`;
+    await fake.endExecutionListeners[0]({ terminal: activeTerminal });
+    await manager.flush();
+  }
+
+  const colors = fake.commands.map(([, color]) => color);
+
+  assert.equal(colors.length, 6);
+  assert.equal(new Set(colors).size, 6);
+});
+
 test('manager resets a previously applied icon color when cwd no longer matches', async () => {
   const activeTerminal = terminalWithCwd('/Users/seongho/projects/dalpha/inf');
   const fake = createFakeVscode({

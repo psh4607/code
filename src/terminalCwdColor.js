@@ -72,7 +72,7 @@ function resolveCwdColor(
     return undefined;
   }
 
-  return resolveHashColor(normalizedCwd);
+  return options.resolveFallbackColor?.(normalizedCwd) ?? resolveHashColor(normalizedCwd);
 }
 
 function getConfiguredRules(vscode) {
@@ -92,12 +92,32 @@ function createTerminalCwdColorManager(vscode, options = {}) {
   const maxCwdRetries = options.maxCwdRetries ?? 5;
   const hashFallback = options.hashFallback ?? true;
   const appliedColorByTerminal = new WeakMap();
+  const fallbackColorByPath = new Map();
+  const usedFallbackColors = new Set();
   const disposables = [];
   const pendingUpdates = new Set();
   let started = false;
 
   function getStoredColorByPath() {
     return context?.globalState?.get(CWD_COLOR_STORAGE_KEY, {}) ?? {};
+  }
+
+  function resolveWindowFallbackColor(normalizedCwd) {
+    if (fallbackColorByPath.has(normalizedCwd)) {
+      return fallbackColorByPath.get(normalizedCwd);
+    }
+
+    const preferredColor = resolveHashColor(normalizedCwd);
+    let color = preferredColor;
+    if (usedFallbackColors.has(color)) {
+      color =
+        HASH_COLOR_PALETTE.find((candidate) => !usedFallbackColors.has(candidate)) ??
+        preferredColor;
+    }
+
+    fallbackColorByPath.set(normalizedCwd, color);
+    usedFallbackColors.add(color);
+    return color;
   }
 
   async function rememberCwdColor({ cwd, color } = {}) {
@@ -135,6 +155,7 @@ function createTerminalCwdColorManager(vscode, options = {}) {
 
     const color = resolveCwdColor(cwd, getConfiguredRules(vscode), getStoredColorByPath(), {
       hashFallback,
+      resolveFallbackColor: resolveWindowFallbackColor,
     });
     const previousColor = appliedColorByTerminal.get(terminal);
     const nextColor = color ?? null;
