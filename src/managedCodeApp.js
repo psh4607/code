@@ -146,6 +146,14 @@ function refreshLaunchServices({ managedAppPath, spawnSync }) {
   }
 }
 
+function clearQuarantine({ managedAppPath, execFileSync }) {
+  try {
+    execFileSync('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', managedAppPath], {
+      stdio: 'ignore',
+    });
+  } catch {}
+}
+
 function ensureManagedCodeApp({
   paths = createManagedCodeAppPaths(),
   execFileSync = childProcess.execFileSync,
@@ -172,6 +180,7 @@ function ensureManagedCodeApp({
   });
 
   if (!decision.refresh) {
+    clearQuarantine({ managedAppPath: paths.managedAppPath, execFileSync });
     return { changed: false, reason: decision.reason };
   }
 
@@ -179,6 +188,7 @@ function ensureManagedCodeApp({
   execFileSync('/bin/cp', ['-R', paths.sourceAppPath, paths.managedAppPath], {
     stdio: 'ignore',
   });
+  clearQuarantine({ managedAppPath: paths.managedAppPath, execFileSync });
 
   patchManagedAppIdentity({
     infoPlistPath: paths.infoPlistPath,

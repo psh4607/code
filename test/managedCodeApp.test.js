@@ -168,6 +168,15 @@ test('ensureManagedCodeApp copies upstream app, patches identity, and writes mar
   assert.equal(marker.sourceShortVersion, '1.127.0');
   assert.deepEqual(calls[0], ['/bin/rm', ['-rf', managedAppPath]]);
   assert.deepEqual(calls[1], ['/bin/cp', ['-R', sourceAppPath, managedAppPath]]);
+  assert.equal(
+    calls.some(
+      ([command, args]) =>
+        command === '/usr/bin/xattr' &&
+        JSON.stringify(args) ===
+          JSON.stringify(['-dr', 'com.apple.quarantine', managedAppPath]),
+    ),
+    true,
+  );
 });
 
 test('ensureManagedCodeApp is idempotent when marker and identity are current', () => {
@@ -203,7 +212,9 @@ test('ensureManagedCodeApp is idempotent when marker and identity are current', 
 
   assert.equal(result.changed, false);
   assert.equal(result.reason, 'managed app current');
-  assert.deepEqual(calls, []);
+  assert.deepEqual(calls, [
+    ['/usr/bin/xattr', ['-dr', 'com.apple.quarantine', managedAppPath]],
+  ]);
 });
 
 test('checkManagedCodeApp reports missing and current managed app states', () => {
