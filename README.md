@@ -4,7 +4,10 @@ Local VS Code extension for small Codex terminal workflows.
 
 ## One-Command Host Management
 
-This project is the source of truth for the local VS Code/Codex terminal setup on this Mac.
+This project is the source of truth for the local VS Code/Codex terminal setup on this Mac. The
+official `/Applications/Visual Studio Code.app` bundle remains the upstream app installed by
+Homebrew. `npm run apply` creates or refreshes the managed runtime app at `/Applications/Code.app`
+and applies local patches only to that managed app.
 
 Check whether everything is still applied:
 
@@ -20,6 +23,8 @@ npm run apply
 
 `npm run apply` manages:
 
+- The managed `/Applications/Code.app` bundle, copied from `/Applications/Visual Studio Code.app`
+  and identified as `com.seongho.Code`.
 - VS Code user settings needed by these terminal workflows.
 - VS Code user keybindings for `Cmd+T`, `Cmd+W`, `Cmd+R`, and `Cmd+Shift+T`.
 - The `.zshrc` cwd-title hook for VS Code terminal tab titles.
@@ -27,7 +32,11 @@ npm run apply
 - The local VS Code extension symlink under `~/.vscode/extensions`.
 - The global `patch-vscode-terminal-order` wrapper.
 - The global `patch-vscode-ime-guard` wrapper.
-- The VS Code workbench bundle/CSS patches, Claude Code title-menu patch, and managed VS Code app icon.
+- The managed `Code.app` workbench bundle/CSS patches, Claude Code title-menu patch, runtime Dock
+  icon patch, and app icon.
+
+The managed app intentionally shares the existing VS Code user data and extensions:
+`/Users/seongho/Library/Application Support/Code/User` and `~/.vscode/extensions`.
 
 The managed terminal settings keep VS Code's persistent terminal sessions enabled and set
 `terminal.integrated.persistentSessionReviveProcess` to `onExitAndWindowClose`, so normal VS Code
@@ -51,7 +60,10 @@ From any directory, the same patch can be run as:
 patch-vscode-terminal-order
 ```
 
-Run it again after manually updating VS Code. The global wrapper now runs all local workbench patches, including the IME composition guard described below. User setting `update.mode: none` is used to prevent VS Code from replacing the patched bundle automatically.
+Run it again after manually updating VS Code. The global wrapper now refreshes `/Applications/Code.app`
+from the upstream VS Code app and runs all local workbench patches, including the IME composition
+guard described below. User setting `update.mode: none` is still managed so the shared VS Code
+profile does not silently update itself outside this flow.
 
 ## Persistent Terminal Revival
 
@@ -97,7 +109,9 @@ as `~/projects/dalpha/inf`, because several terminals can share the same cwd.
 
 ## VS Code App Icon
 
-This project keeps Warp's Glass Sky app icon source at `assets/warp-glass-sky.png`, stores the generated macOS icon at `assets/warp-glass-sky.icns`, and installs it over VS Code's app icon:
+This project keeps Warp's Glass Sky app icon source at `assets/warp-glass-sky.png`, stores the
+generated macOS icon at `assets/warp-glass-sky.icns`, and installs it over the managed `Code.app`
+app icon:
 
 ```sh
 npm run patch:vscode-icon
@@ -109,9 +123,12 @@ The full patch command also applies it:
 patch-vscode-terminal-order
 ```
 
-Run it again after a VS Code update. The patch backs up the current `Code.icns` before overwriting it.
-It also applies the same image as a Finder custom app icon on the `.app` bundle, which helps Dock and Finder pick up the icon when macOS ignores the changed `CFBundleIconFile` resource.
-For the running Dock tile, the full patch command also patches VS Code's Electron main bundle so startup calls `app.dock.setIcon(...)` with the managed PNG:
+Run it again after a VS Code update. The patch backs up the current `Code.icns` inside
+`/Applications/Code.app` before overwriting it. It also applies the same image as a Finder custom app
+icon on the managed `.app` bundle, which helps Dock and Finder pick up the icon when macOS ignores
+the changed `CFBundleIconFile` resource. For the running Dock tile, the full patch command also
+patches `Code.app`'s Electron main bundle so startup calls `app.dock.setIcon(...)` with the managed
+PNG:
 
 ```sh
 npm run patch:vscode-dock-icon

@@ -15,6 +15,12 @@ The intended maintenance path is:
 3. Check drift with `npm run doctor`.
 4. Re-run the same flow after VS Code updates or host config drift.
 
+The official `/Applications/Visual Studio Code.app` bundle is the upstream source. This project owns
+the managed runtime bundle at `/Applications/Code.app`, copied from the upstream app and identified
+as `com.seongho.Code`. Keep VS Code user data shared with the existing `Code` profile; do not split
+`/Users/seongho/Library/Application Support/Code/User` or `~/.vscode/extensions` unless explicitly
+asked.
+
 Do not create a second umbrella repo for these local patches. Extend this
 project and keep host writes repeatable.
 
@@ -22,6 +28,7 @@ project and keep host writes repeatable.
 
 `npm run apply` owns these host surfaces:
 
+- The managed `/Applications/Code.app` bundle copied from `/Applications/Visual Studio Code.app`.
 - VS Code user settings in `/Users/seongho/Library/Application Support/Code/User/settings.json`.
 - VS Code user keybindings in `/Users/seongho/Library/Application Support/Code/User/keybindings.json`.
 - The `.zshrc` cwd-title hook used by VS Code terminal tab titles.
@@ -29,13 +36,13 @@ project and keep host writes repeatable.
 - The local extension symlink under `~/.vscode/extensions`.
 - The global `patch-vscode-terminal-order` wrapper.
 - The global `patch-vscode-ime-guard` wrapper.
-- The VS Code workbench bundle/CSS patches, Claude Code title-menu patch,
+- The managed `Code.app` workbench bundle/CSS patches, Claude Code title-menu patch,
   managed VS Code app icon, and runtime Dock icon patch.
 
 The important source files are:
 
 - `src/hostConfig.js`: desired host state, normalization, and drift checks.
-- `scripts/apply-host-config.js`: normalize host files, run `npm run patch`, then verify.
+- `scripts/apply-host-config.js`: ensure managed `Code.app`, normalize host files, run `npm run patch`, then verify.
 - `scripts/doctor.js`: read-only host drift check.
 - `scripts/patch-vscode-*.js`: app bundle, CSS, icon, Dock icon, and IME patches.
 - `src/*`: extension behavior for terminal creation, paste, rename, detached sessions,
@@ -85,7 +92,7 @@ patch-vscode-ime-guard
 
 ## VS Code Update Recovery
 
-VS Code app updates can replace patched bundles and icons. When terminal
+VS Code app updates can replace the upstream bundle used to refresh `Code.app`. When terminal
 creation starts appending to the bottom again, terminal tab colors stop
 following cwd/manual mappings, the empty-editor watermark returns, the Dock/app
 icon resets, the Claude Code title buttons return, or Korean IME composition
@@ -101,13 +108,14 @@ If only bundle patches are needed and host settings are already correct, run:
 npm run patch
 ```
 
-After patching the VS Code app bundle or Electron main bundle, fully quit and
-reopen VS Code. `Developer: Reload Window` is not enough because those bundles
+After patching the managed `Code.app` bundle or Electron main bundle, fully quit and
+reopen `Code.app`. `Developer: Reload Window` is not enough because those bundles
 are loaded by the app process.
 
 ## Guardrails
 
-- Do not fork VS Code for this behavior. The local bundle patch plus reapply script is the intended maintenance path.
+- Do not build a separate VS Code source fork for this behavior. The managed `Code.app` copy plus reapply script is the intended maintenance path.
+- Keep `/Applications/Visual Studio Code.app` as the upstream source and apply local bundle patches to `/Applications/Code.app`.
 - Keep `update.mode` set to `none` in `/Users/seongho/Library/Application Support/Code/User/settings.json` unless the user explicitly asks to restore automatic updates.
 - Keep VS Code excluded from Homebrew upgrades with `brew pin --cask visual-studio-code` unless the user explicitly asks to restore automatic upgrades. `update.mode: none` and the Homebrew pin cover different update paths.
 - Do not hand-edit host files as a one-off fix when the state should be durable. Put the desired state in `src/hostConfig.js` or a patch script, then use `npm run apply`.
@@ -115,7 +123,7 @@ are loaded by the app process.
 - Do not match Codex terminal sessions by cwd alone. Session resume depends on a visible `thread-id` in the Codex terminal title because several terminals can share the same cwd.
 - Do not treat VS Code persistent sessions and `codex resume <session-id>` as the same mechanism. Persistent sessions are VS Code's PTY/process restore path; Codex auto-resume only sends a resume command into a restored idle shell when the old Codex process was not revived.
 - If direct VS Code API support exists, prefer it. Patch the minified VS Code bundle only for host-local behaviors the public extension API cannot provide.
-- If a patch script says VS Code internals changed, stop and inspect the current target in `/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js` or `/Applications/Visual Studio Code.app/Contents/Resources/app/out/main.js` before editing.
+- If a patch script says VS Code internals changed, stop and inspect the current target in `/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js` or `/Applications/Code.app/Contents/Resources/app/out/main.js` before editing.
 - Do not guess from old marker strings when VS Code internals changed. First locate the current implementation, then update the script and tests together.
 - Verify with `npm test` after changing this extension.
 
@@ -179,7 +187,7 @@ For persistent terminal or Codex auto-resume regressions:
 For app icon, Dock icon, watermark, or Claude title-menu regressions:
 
 - Use `npm run doctor` to identify the missing marker or asset mismatch.
-- Re-run `npm run patch` after VS Code or extension updates.
+- Re-run `npm run apply` after VS Code or extension updates so `Code.app` is refreshed before patching.
 - If marker checks fail after an update, inspect the current target bundle or
   extension manifest before editing the patch script.
 
