@@ -212,7 +212,7 @@ test('normalizeZshrc upgrades the cwd-title hook to the managed block', () => {
   assert.equal(value.includes('# User configuration'), true);
 });
 
-test('normalizeCodexConfigToml removes Codex thread id from terminal titles', () => {
+test('normalizeCodexConfigToml removes Codex thread id from visible title surfaces', () => {
   const source = [
     'model = "gpt-5"',
     'terminal_title = ["activity", "project-name", "thread-title", "thread-id", "fast-mode"]',
@@ -229,7 +229,7 @@ test('normalizeCodexConfigToml removes Codex thread id from terminal titles', ()
     ),
     true,
   );
-  assert.equal(value.includes('status_line = ["model-with-reasoning", "thread-id", "fast-mode"]'), true);
+  assert.equal(value.includes('status_line = ["model-with-reasoning", "fast-mode"]'), true);
 });
 
 test('normalizeCodexHooksJson appends the managed SessionStart hook', () => {
@@ -359,6 +359,14 @@ test('checkHostConfig reports managed files as ok', () => {
     path.join(home, '.codex', 'config.toml'),
     normalizeCodexConfigToml('').value,
   );
+  fs.writeFileSync(
+    path.join(home, '.codex', 'hooks.json'),
+    `${JSON.stringify(
+      normalizeCodexHooksJson({}, { projectRoot }).value,
+      null,
+      2,
+    )}\n`,
+  );
   ensureGlobalPatchWrapper({
     wrapperPath: path.join(binDir, 'patch-vscode-terminal-order'),
     projectRoot,
@@ -376,6 +384,7 @@ test('checkHostConfig reports managed files as ok', () => {
       userKeybindingsPath: path.join(userDir, 'keybindings.json'),
       zshrcPath: path.join(home, '.zshrc'),
       codexConfigPath: path.join(home, '.codex', 'config.toml'),
+      codexHooksPath: path.join(home, '.codex', 'hooks.json'),
       extensionPath: extensionDir,
       wrapperPath: path.join(binDir, 'patch-vscode-terminal-order'),
       imeWrapperPath: path.join(binDir, 'patch-vscode-ime-guard'),
@@ -397,6 +406,7 @@ test('checkHostConfig reports managed files as ok', () => {
       keybindings: true,
       zshrc: true,
       codexConfig: true,
+      codexHooks: true,
       extension: true,
       wrapper: true,
       imeWrapper: true,

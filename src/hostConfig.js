@@ -504,6 +504,7 @@ function normalizeCodexTerminalTitleComponents(components) {
 
 function normalizeCodexConfigToml(source = '') {
   const terminalTitleRe = /^terminal_title\s*=\s*(\[[^\n]*\])\s*$/m;
+  const statusLineRe = /^status_line\s*=\s*(\[[^\n]*\])\s*$/m;
   const match = source.match(terminalTitleRe);
   const components = match ? parseTomlStringArray(match[1]) : DEFAULT_CODEX_TERMINAL_TITLE;
   const terminalTitleLine = `terminal_title = ${stringifyTomlStringArray(
@@ -515,6 +516,21 @@ function normalizeCodexConfigToml(source = '') {
     value = source.replace(terminalTitleRe, terminalTitleLine);
   } else {
     value = `${source.replace(/\s*$/, '\n\n')}${terminalTitleLine}\n`;
+  }
+
+  const statusLineMatch = value.match(statusLineRe);
+  if (statusLineMatch) {
+    const statusLineComponents = parseTomlStringArray(statusLineMatch[1]);
+    const normalizedStatusLineComponents = statusLineComponents.filter(
+      (component) => component !== CODEX_TERMINAL_TITLE_THREAD_ID,
+    );
+
+    if (normalizedStatusLineComponents.length !== statusLineComponents.length) {
+      value = value.replace(
+        statusLineRe,
+        `status_line = ${stringifyTomlStringArray(normalizedStatusLineComponents)}`,
+      );
+    }
   }
 
   return {

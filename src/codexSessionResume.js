@@ -1,9 +1,17 @@
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 const { execFile } = require('node:child_process');
 
 const CODEX_SESSION_RESUME_STORAGE_KEY = 'codexTerminal.codexSessionResume.records';
 const DEFAULT_STARTUP_DELAY_MS = 1000;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 3000;
+const DEFAULT_SESSION_REGISTRY_PATH = path.join(
+  os.homedir(),
+  '.codex',
+  'codex-vscode-terminal-tools',
+  'session-registry.json',
+);
 const SESSION_ID_RE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
 
@@ -225,6 +233,47 @@ function createDefaultListProcesses(execFileImpl = execFile) {
   };
 }
 
+function normalizeSessionRegistryRecords(source) {
+  const records = Array.isArray(source) ? source : source?.records;
+  return (Array.isArray(records) ? records : [])
+    .map((record) => {
+      const sessionId = extractCodexSessionId(
+        record?.sessionId ?? record?.session_id ?? record?.thread_id ?? record?.['thread-id'],
+      );
+      if (!sessionId) {
+        return undefined;
+      }
+
+      const normalized = {
+        sessionId,
+        updatedAt: normalizeNumber(record.updatedAt) ?? 0,
+      };
+      const cwd = normalizeCwd(record.cwd);
+      const terminalPid = normalizePid(record.terminalPid ?? record.processId);
+
+      if (cwd) {
+        normalized.cwd = cwd;
+      }
+      if (terminalPid) {
+        normalized.terminalPid = terminalPid;
+      }
+
+      return normalized;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function createDefaultLoadSessionRegistryRecords(registryPath = DEFAULT_SESSION_REGISTRY_PATH) {
+  return async function loadSessionRegistryRecords() {
+    try {
+      return normalizeSessionRegistryRecords(JSON.parse(fs.readFileSync(registryPath, 'utf8')));
+    } catch {
+      return [];
+    }
+  };
+}
+
 function normalizeRecords(records) {
   const bySessionId = new Map();
 
@@ -335,6 +384,20 @@ function findRecordForRestoredTerminal(terminal, terminalIndex, records) {
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0];
 }
 
+function findSessionRegistryRecordForTerminal(registryRecords, terminal, processId) {
+  const normalizedProcessId = normalizePid(processId);
+  if (!normalizedProcessId) {
+    return undefined;
+  }
+
+  const cwd = getTerminalCwd(terminal);
+  return normalizeSessionRegistryRecords(registryRecords).find(
+    (record) =>
+      record.terminalPid === normalizedProcessId &&
+      (!record.cwd || !cwd || record.cwd === cwd),
+  );
+}
+
 function getConfigured(vscode, key, fallback) {
   return vscode.workspace?.getConfiguration('codexTerminal')?.get(key, fallback) ?? fallback;
 }
@@ -343,6 +406,9 @@ function createCodexSessionResumeManager(vscode, options = {}) {
   const now = options.now ?? Date.now;
   const storage = options.storage ?? createGlobalStateStorage(options.context);
   const listProcesses = options.listProcesses ?? createDefaultListProcesses(options.execFile);
+  const loadSessionRegistryRecords =
+    options.loadSessionRegistryRecords ??
+    createDefaultLoadSessionRegistryRecords(options.sessionRegistryPath);
   const setTimeoutFn = options.setTimeout ?? setTimeout;
   const clearTimeoutFn = options.clearTimeout ?? clearTimeout;
   const setIntervalFn = options.setInterval ?? setInterval;
@@ -364,6 +430,15 @@ function createCodexSessionResumeManager(vscode, options = {}) {
 
   async function writeRecords(records) {
     await storage.setRecords(normalizeRecords(records));
+  }
+
+  async function readSessionRegistryRecords() {
+    try {
+      return normalizeSessionRegistryRecords(await loadSessionRegistryRecords());
+    } catch (error) {
+      log.warn?.('Failed to read Codex session registry', error);
+      return [];
+    }
   }
 
   function track(task) {
@@ -437,13 +512,21 @@ function createCodexSessionResumeManager(vscode, options = {}) {
   async function snapshotTerminals({ inspectProcesses = false } = {}) {
     const currentTime = now();
     const existingRecords = await readRecords();
+    const registryRecords = await readSessionRegistryRecords();
     const nextRecords = [...existingRecords];
 
     for (const [terminalIndex, terminal] of (vscode.window.terminals || []).entries()) {
       const title = getTerminalTitle(terminal);
+      const processId = await getTerminalPid(terminal);
+      const registryRecord = findSessionRegistryRecordForTerminal(
+        registryRecords,
+        terminal,
+        processId,
+      );
       const sessionId =
         extractCodexSessionId(title) ??
-        findRecordForTerminal(terminal, terminalIndex, existingRecords)?.sessionId;
+        findRecordForTerminal(terminal, terminalIndex, existingRecords)?.sessionId ??
+        registryRecord?.sessionId;
 
       if (!sessionId) {
         continue;
@@ -453,7 +536,6 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         nextRecords.find((record) => record.sessionId === sessionId) ??
         findRecordForTerminal(terminal, terminalIndex, nextRecords) ??
         {};
-      const processId = await getTerminalPid(terminal);
       const nextRecord = {
         ...existingRecord,
         cwd: getTerminalCwd(terminal),
@@ -463,6 +545,11 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         terminalIndex,
         title,
       };
+
+      if (registryRecord?.sessionId === sessionId) {
+        nextRecord.codexProcessActive = true;
+        nextRecord.lastObservedCodexProcessAt = currentTime;
+      }
 
       if (inspectProcesses) {
         const inspection = await inspectTerminalCodexProcess(terminal);
@@ -591,16 +678,24 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     }
 
     const records = await readRecords();
+    const registryRecords = await readSessionRegistryRecords();
     const updatedRecords = [...records];
     const restoreCheckedAt = now();
 
     for (const [terminalIndex, terminal] of (vscode.window.terminals || []).entries()) {
       const title = getTerminalTitle(terminal);
+      const processId = await getTerminalPid(terminal);
       const titleSessionId = extractCodexSessionId(title);
+      const registryRecord = findSessionRegistryRecordForTerminal(
+        registryRecords,
+        terminal,
+        processId,
+      );
       const matchedRecord = findRecordForRestoredTerminal(terminal, terminalIndex, records);
       const titleIsResumeEvidence =
         titleSessionId &&
         (!matchedRecord || matchedRecord.codexProcessActive || matchedRecord.title !== title);
+      const registryIsResumeEvidence = Boolean(registryRecord?.sessionId);
       const record = titleIsResumeEvidence
         ? {
             ...(matchedRecord ?? {}),
@@ -610,6 +705,16 @@ function createCodexSessionResumeManager(vscode, options = {}) {
             terminalIndex,
             title,
           }
+        : registryIsResumeEvidence
+          ? {
+              ...(matchedRecord ?? {}),
+              codexProcessActive: true,
+              cwd: getTerminalCwd(terminal),
+              processId,
+              sessionId: registryRecord.sessionId,
+              terminalIndex,
+              title,
+            }
         : matchedRecord;
       if (!shouldResumeRecord(record)) {
         upsertRestoreDecisionRecord(
