@@ -5,7 +5,7 @@ const fs = require('fs');
 
 const workbenchPath =
   process.env.VSCODE_WORKBENCH_MAIN ||
-  '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js';
+  '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js';
 
 const patchHeader = '/* Patched by codex-vscode-terminal-tools. Reapply with patch-vscode-terminal-order. */\n';
 const imeGuardMarker =

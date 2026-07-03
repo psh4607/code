@@ -7,12 +7,12 @@ const path = require('node:path');
 const projectRoot = path.resolve(__dirname, '..');
 const mainPath =
   process.env.VSCODE_MAIN_PATH ||
-  '/Applications/Visual Studio Code.app/Contents/Resources/app/out/main.js';
+  '/Applications/Code.app/Contents/Resources/app/out/main.js';
 const pngSourcePath =
   process.env.CODEX_VSCODE_ICON_PNG_SOURCE || path.join(projectRoot, 'assets', 'warp-glass-sky.png');
 const pngTargetPath =
   process.env.VSCODE_DOCK_ICON_PNG_PATH ||
-  '/Applications/Visual Studio Code.app/Contents/Resources/codex-warp-glass-sky.png';
+  '/Applications/Code.app/Contents/Resources/codex-warp-glass-sky.png';
 
 const electronImportMarker =
   'import{app as st,protocol as tN,crashReporter as rN,Menu as nN,contentTracing as iN}from"electron";';

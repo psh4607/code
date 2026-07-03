@@ -4,7 +4,7 @@ const fs = require('node:fs');
 
 const cssPath =
   process.env.VSCODE_WORKBENCH_CSS ||
-  '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css';
+  '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css';
 
 const patchMarker =
   '/* codex-vscode-terminal-tools: hide-empty-editor-watermark. Reapply with patch-vscode-watermark. */';

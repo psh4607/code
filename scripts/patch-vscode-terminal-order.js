@@ -7,7 +7,7 @@ const path = require('path');
 
 const workbenchPath =
   process.env.VSCODE_WORKBENCH_MAIN ||
-  '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js';
+  '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js';
 
 const original =
   'unsplitInstance(e){let t=this.getGroupForInstance(e);!t||t.terminalInstances.length<2||(t.removeInstance(e),this.createGroup(e))}';

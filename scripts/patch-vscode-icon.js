@@ -12,7 +12,7 @@ const pngSourcePath =
   process.env.CODEX_VSCODE_ICON_PNG_SOURCE || path.join(projectRoot, 'assets', 'warp-glass-sky.png');
 const targetPath =
   process.env.VSCODE_ICON_PATH ||
-  '/Applications/Visual Studio Code.app/Contents/Resources/Code.icns';
+  '/Applications/Code.app/Contents/Resources/Code.icns';
 const skipFinderCustomIcon = process.env.CODEX_VSCODE_ICON_SKIP_FINDER_CUSTOM_ICON === '1';
 
 function timestamp() {
