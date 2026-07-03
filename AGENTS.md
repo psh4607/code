@@ -16,10 +16,12 @@ The intended maintenance path is:
 4. Re-run the same flow after VS Code updates or host config drift.
 
 The official `/Applications/Visual Studio Code.app` bundle is the upstream source. This project owns
-the managed runtime bundle at `/Applications/Code.app`, copied from the upstream app and identified
-as `com.seongho.Code`. Keep VS Code user data shared with the existing `Code` profile; do not split
+the managed runtime bundle at `/Applications/Code.app`, copied from the upstream app with display
+name `Code`. Keep VS Code user data shared with the existing `Code` profile; do not split
 `/Users/seongho/Library/Application Support/Code/User` or `~/.vscode/extensions` unless explicitly
 asked.
+Keep the root bundle id launch-compatible with VS Code's signed Electron app (`com.microsoft.VSCode`);
+changing it to a custom id causes macOS launchd to reject the app before startup.
 
 Do not create a second umbrella repo for these local patches. Extend this
 project and keep host writes repeatable.

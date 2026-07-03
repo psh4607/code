@@ -76,6 +76,10 @@ test('buildManagedAppMarker records source and managed identity', () => {
   assert.equal(marker.managedDisplayName, MANAGED_BUNDLE_DISPLAY_NAME);
 });
 
+test('managed app keeps the Microsoft bundle id for signed Electron launch compatibility', () => {
+  assert.equal(MANAGED_BUNDLE_ID, 'com.microsoft.VSCode');
+});
+
 test('shouldRefreshManagedApp refreshes missing, stale, or wrong-identity managed apps', () => {
   const sourceInfo = {
     bundleId: 'com.microsoft.VSCode',
@@ -104,10 +108,24 @@ test('shouldRefreshManagedApp refreshes missing, stale, or wrong-identity manage
     shouldRefreshManagedApp({
       sourceInfo,
       managedExists: true,
-      managedInfo: { bundleId: 'com.microsoft.VSCode', displayName: 'Code', name: 'Code' },
+      managedInfo: { bundleId: 'com.example.BrokenCode', displayName: 'Code', name: 'Code' },
       marker: { sourceShortVersion: '1.127.0', sourceBundleVersion: 'abc' },
     }),
     { refresh: true, reason: 'managed app identity drifted' },
+  );
+
+  assert.deepEqual(
+    shouldRefreshManagedApp({
+      sourceInfo,
+      managedExists: true,
+      managedInfo: { bundleId: MANAGED_BUNDLE_ID, displayName: 'Code', name: 'Code' },
+      marker: {
+        managedBundleId: 'com.seongho.Code',
+        sourceShortVersion: '1.127.0',
+        sourceBundleVersion: 'abc',
+      },
+    }),
+    { refresh: true, reason: 'managed app identity marker drifted' },
   );
 
   assert.deepEqual(

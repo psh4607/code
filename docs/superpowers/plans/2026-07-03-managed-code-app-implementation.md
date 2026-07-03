@@ -12,7 +12,7 @@
 
 ## File Structure
 
-- Create `src/managedCodeApp.js`: path helpers, metadata readers, marker JSON, refresh decision, app copy, bundle id/display-name patching, and doctor status.
+- Create `src/managedCodeApp.js`: path helpers, metadata readers, marker JSON, refresh decision, app copy, display-name patching, launch-compatible bundle id preservation, and doctor status.
 - Modify `src/hostConfig.js`: default paths should point patch targets at `/Applications/Code.app`; export managed-app checks and call them from `applyHostConfig`/`checkHostConfig`.
 - Modify `scripts/apply-host-config.js`: ensure the managed app before running patch scripts.
 - Modify `scripts/patch-vscode-terminal-order.js`, `scripts/patch-vscode-ime-guard.js`, `scripts/patch-vscode-watermark.js`, `scripts/patch-vscode-icon.js`, `scripts/patch-vscode-dock-icon.js`: default to managed app paths.
@@ -484,7 +484,7 @@ git commit -m "docs: describe managed Code app workflow"
 
 Spec coverage:
 - Managed `Code.app` creation and refresh: Tasks 1-3.
-- Separate bundle id/display name: Tasks 1-2.
+- Display identity and signed bundle id preservation: Tasks 1-2, plus launch smoke verification.
 - Shared user data: Task 3 keeps host settings paths unchanged and Task 5 documents it.
 - Patch scripts default to managed app: Task 4.
 - Doctor and apply integration: Tasks 2-3 and Task 5.

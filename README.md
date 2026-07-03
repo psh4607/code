@@ -24,7 +24,7 @@ npm run apply
 `npm run apply` manages:
 
 - The managed `/Applications/Code.app` bundle, copied from `/Applications/Visual Studio Code.app`
-  and identified as `com.seongho.Code`.
+  with display name `Code`.
 - VS Code user settings needed by these terminal workflows.
 - VS Code user keybindings for `Cmd+T`, `Cmd+W`, `Cmd+R`, and `Cmd+Shift+T`.
 - The `.zshrc` cwd-title hook for VS Code terminal tab titles.
@@ -37,6 +37,8 @@ npm run apply
 
 The managed app intentionally shares the existing VS Code user data and extensions:
 `/Users/seongho/Library/Application Support/Code/User` and `~/.vscode/extensions`.
+It also intentionally keeps VS Code's signed `com.microsoft.VSCode` bundle id; changing that id on
+the copied Electron bundle prevents macOS from launching it.
 
 The managed terminal settings keep VS Code's persistent terminal sessions enabled and set
 `terminal.integrated.persistentSessionReviveProcess` to `onExitAndWindowClose`, so normal VS Code

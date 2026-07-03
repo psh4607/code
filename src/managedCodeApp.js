@@ -5,7 +5,9 @@ const path = require('node:path');
 const DEFAULT_APPLICATIONS_DIR = '/Applications';
 const SOURCE_APP_NAME = 'Visual Studio Code.app';
 const MANAGED_APP_NAME = 'Code.app';
-const MANAGED_BUNDLE_ID = 'com.seongho.Code';
+// Keep the signed VS Code bundle identifier. Changing the root bundle id on the
+// copied Electron app makes macOS launchd kill the app before startup.
+const MANAGED_BUNDLE_ID = 'com.microsoft.VSCode';
 const MANAGED_BUNDLE_DISPLAY_NAME = 'Code';
 const CODEX_MANAGED_APP_MARKER_RELATIVE_PATH =
   'Contents/Resources/app/codex-managed-code-app.json';
@@ -88,6 +90,10 @@ function shouldRefreshManagedApp({ sourceInfo, managedExists, managedInfo, marke
 
   if (!managedInfo || managedInfo.bundleId !== MANAGED_BUNDLE_ID) {
     return { refresh: true, reason: 'managed app identity drifted' };
+  }
+
+  if (marker && marker.managedBundleId && marker.managedBundleId !== MANAGED_BUNDLE_ID) {
+    return { refresh: true, reason: 'managed app identity marker drifted' };
   }
 
   if (

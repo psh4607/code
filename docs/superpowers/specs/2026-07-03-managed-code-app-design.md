@@ -16,7 +16,7 @@ normally launches.
 `npm run apply` should:
 
 1. ensure `/Applications/Code.app` exists and is refreshed from the upstream app when needed;
-2. set the managed app identity to `Code` with a separate bundle id such as `com.seongho.Code`;
+2. set the managed app display identity to `Code` while preserving VS Code's signed bundle id;
 3. normalize the existing shared host settings, keybindings, shell hooks, Codex terminal title,
    extension symlink, and patch wrappers;
 4. apply all bundle, CSS, icon, Dock icon, watermark, IME, and terminal-order patches to
@@ -34,8 +34,10 @@ first implementation. Keeping those values intact preserves:
 - `~/.vscode/extensions`;
 - the current `code` CLI behavior and extension ecosystem assumptions.
 
-Changing the macOS bundle id is acceptable because the shared VS Code data location is driven by the
-VS Code product configuration rather than the `.app` folder name alone.
+The macOS bundle id should stay `com.microsoft.VSCode` in this implementation. Testing showed that
+changing only the root bundle id on the copied signed Electron app makes macOS launchd reject the
+app before startup. The separate app boundary is therefore the managed `/Applications/Code.app`
+bundle path, display name, icon, and patch marker rather than a distinct bundle id.
 
 ## App Refresh Policy
 
