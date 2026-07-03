@@ -1,0 +1,931 @@
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const MANAGED_APPLY_TO_ALL_PROFILES = [
+  'terminal.integrated.splitCwd',
+  'terminal.integrated.tabs.title',
+  'terminal.integrated.tabs.description',
+  'terminal.integrated.tabs.focusMode',
+  'terminal.integrated.enablePersistentSessions',
+  'terminal.integrated.persistentSessionReviveProcess',
+  'terminal.integrated.commandsToSkipShell',
+  'workbench.browser.openLocalhostLinks',
+];
+
+const MANAGED_SETTINGS = {
+  'update.mode': 'none',
+  'workbench.browser.openLocalhostLinks': false,
+  'terminal.integrated.tabs.title': '${sequence}',
+  'terminal.integrated.tabs.description': '',
+  'terminal.integrated.tabs.focusMode': 'singleClick',
+  'terminal.integrated.enableImages': true,
+  'terminal.integrated.enableKittyKeyboardProtocol': false,
+  'terminal.integrated.enablePersistentSessions': true,
+  'terminal.integrated.persistentSessionReviveProcess': 'onExitAndWindowClose',
+  'terminal.integrated.splitCwd': 'inherited',
+  'editor.cursorStyle': 'block',
+  'terminal.integrated.cursorStyle': 'block',
+};
+
+const MANAGED_COMMANDS_TO_SKIP_SHELL = [];
+const LEGACY_MANAGED_COMMANDS_TO_SKIP_SHELL = ['workbench.action.terminal.sendSequence'];
+
+const MANAGED_COLOR_CUSTOMIZATIONS = {
+  'editorCursor.foreground': '#E9072D',
+  'editorCursor.background': '#FFFFFF',
+  'editor.compositionBorder': '#E9072D',
+  'terminalCursor.foreground': '#E9072D',
+  'terminalCursor.background': '#FFFFFF',
+};
+
+const CODEX_TERMINAL_TITLE_THREAD_ID = 'thread-id';
+const DEFAULT_CODEX_TERMINAL_TITLE = [
+  'activity',
+  'project-name',
+  'thread-title',
+  CODEX_TERMINAL_TITLE_THREAD_ID,
+  'fast-mode',
+];
+
+const MANAGED_KEYBINDINGS = [
+  {
+    key: 'cmd+t',
+    command: 'codexTerminal.newFromActiveCwd',
+    when: 'terminalProcessSupported || terminalWebExtensionContributedProfile',
+  },
+  {
+    key: 'cmd+w',
+    command: 'codexTerminal.detachWithTtl',
+    when: 'terminal.active && terminalFocus',
+  },
+  {
+    key: 'cmd+r',
+    command: 'codexTerminal.renameThread',
+    when: 'terminalFocus',
+  },
+  {
+    key: 'cmd+v',
+    command: 'codexTerminal.smartPaste',
+    when: 'terminalFocus',
+  },
+  {
+    key: 'cmd+shift+t',
+    command: '-workbench.action.reopenClosedEditor',
+  },
+  {
+    key: 'cmd+shift+t',
+    command: 'codexTerminal.attachDetachedSession',
+    when: 'terminalProcessSupported',
+  },
+];
+
+const MANAGED_KEYBINDING_REPLACEMENTS = [
+  {
+    key: 'cmd+t',
+    when: 'terminalProcessSupported || terminalWebExtensionContributedProfile',
+  },
+  {
+    key: 'cmd+w',
+    when: 'terminal.active && terminalFocus',
+  },
+  {
+    key: 'cmd+r',
+    when: 'terminalFocus',
+  },
+  {
+    key: 'cmd+v',
+    when: 'terminalFocus',
+  },
+  {
+    key: 'cmd+shift+t',
+    when: undefined,
+  },
+  {
+    key: 'cmd+shift+t',
+    when: 'terminalProcessSupported',
+  },
+  {
+    key: 'shift+enter',
+    when: 'terminalFocus',
+  },
+];
+
+const ZSH_CWD_TITLE_SNIPPET = [
+  '# BEGIN codex-vscode-terminal-tools: vscode-cwd-title',
+  '# VS Code terminal tab title: show cwd as ~/...',
+  '_vscode_cwd_title() {',
+  '  [[ "$TERM_PROGRAM" == "vscode" ]] || return',
+  '',
+  '  local title="${PWD/#$HOME/~}"',
+  "  printf '\\033]0;%s\\007' \"$title\"",
+  '}',
+  '',
+  'autoload -Uz add-zsh-hook',
+  'add-zsh-hook -d precmd _vscode_cwd_title 2>/dev/null',
+  'add-zsh-hook -d chpwd _vscode_cwd_title 2>/dev/null',
+  'add-zsh-hook precmd _vscode_cwd_title',
+  'add-zsh-hook chpwd _vscode_cwd_title',
+  '# END codex-vscode-terminal-tools: vscode-cwd-title',
+  '',
+].join('\n');
+
+const MANAGED_ZSH_BLOCK_RE =
+  /# BEGIN codex-vscode-terminal-tools: vscode-cwd-title\n[\s\S]*?# END codex-vscode-terminal-tools: vscode-cwd-title\n?/;
+
+const LEGACY_ZSH_BLOCK_RE =
+  /# VS Code terminal tab title: show cwd as ~\/\.\.\.\n_vscode_cwd_title\(\) \{\n[\s\S]*?add-zsh-hook chpwd _vscode_cwd_title\n?/;
+
+const TERMINAL_ORDER_MARKER = 'this.groups.splice(Math.min(o+1,this.groups.length),0,n)';
+const TERMINAL_COLOR_MARKER = 'codexTerminal.rememberCwdColor';
+const TERMINAL_COLOR_ARGUMENT_MARKER = 'typeof t=="string"||t===null';
+const TERMINAL_EMPTY_AREA_MARKER =
+  'this._terminalGroupService.instances.length-1,I=this._terminalGroupService.instances[S]';
+const TERMINAL_EMPTY_NATIVE_MARKER =
+  'this._register($(this._tabListDomElement,"mousedown",async o=>{if(o.button!==0)return';
+const IME_GUARD_MARKER =
+  '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */';
+const IME_EARLY_CAPTURE_MARKER = 'addEventListener("keydown",p,!0)';
+const IME_RECENT_COMPOSITION_MARKER = 'Date.now()-m<180';
+const IME_TERMINAL_TARGET_MARKER = 'xterm-helper-textarea';
+const IME_NATIVE_LINEBREAK_MARKER = 'insertLineBreak';
+const IME_NATIVE_PARAGRAPH_MARKER = 'insertParagraph';
+const IME_NATIVE_CR_MARKER = 'a?.data==="\\r"';
+const IME_NATIVE_KEYPRESS_MARKER = 'addEventListener("keypress",I,!0)';
+const IME_TERMINAL_COMMIT_DEFERRAL_MARKER = 'Math.max(120,360-(Date.now()-m))';
+const IME_TERMINAL_NATIVE_COMMIT_MARKER = 'function p(a){u(a)&&!a.defaultPrevented&&(h=Date.now()+1400)}';
+const IME_ACTIVITY_QUIET_WINDOW_MARKER = 'addEventListener("compositionupdate",y,!0)';
+const IME_TERMINAL_KEY_HANDLER_MARKER = 'globalThis.__codexVscodeImeGuard?.suppressTerminalKey?.(n,';
+const IME_TERMINAL_DIRECT_SEQUENCE_MARKER = 'this.sendText("\\x1B\\r",!1)';
+const IME_TERMINAL_DIRECT_SEQUENCE_DEDUPE_MARKER = 'C==="\\x1B\\r"&&S-P<80';
+const IME_TERMINAL_SEQUENCE_QUEUE_MARKER = 'queueTerminalSequence';
+const IME_TERMINAL_LEGACY_LF_CONSUME_MARKER =
+  'if(a==="\\x1B\\n")return C=a,P=S,h=S+1400,!0';
+const IME_TERMINAL_CR_QUEUE_MARKER = 'queued terminal CR sequence failed';
+const IME_TERMINAL_SEQUENCE_DEDUPE_MARKER = 'a===C&&S-P<80';
+const IME_TERMINAL_SEND_SEQUENCE_MARKER =
+  'globalThis.__codexVscodeImeGuard?.queueTerminalSequence?.(m,()=>s.sendText(m,!1))??s.sendText(m,!1)';
+const IME_DISPATCH_MARKER =
+  '_dispatch(e,t){let o=this.resolveKeyboardEvent(e),n=globalThis.__codexVscodeImeGuard?.defer?.(e,t,()=>this._doDispatch(o,t,!1));return n!==void 0?n:this._doDispatch(o,t,!1)}';
+const WATERMARK_PATCH_MARKER = 'codex-vscode-terminal-tools: hide-empty-editor-watermark';
+const WATERMARK_PATCH_RULE =
+  '.monaco-workbench .part.editor>.content .editor-group-container>.editor-group-watermark-wrapper .editor-group-watermark .letterpress{display:none!important;}';
+const DOCK_ICON_PATCH_MARKER = 'Codex VS Code Dock icon patch';
+
+function defaultProjectRoot() {
+  return path.resolve(__dirname, '..');
+}
+
+function createDefaultPaths({ home = os.homedir(), projectRoot = defaultProjectRoot() } = {}) {
+  return {
+    home,
+    projectRoot,
+    userSettingsPath: path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
+    userKeybindingsPath: path.join(
+      home,
+      'Library',
+      'Application Support',
+      'Code',
+      'User',
+      'keybindings.json',
+    ),
+    codexConfigPath: path.join(home, '.codex', 'config.toml'),
+    zshrcPath: path.join(home, '.zshrc'),
+    extensionPath: path.join(
+      home,
+      '.vscode',
+      'extensions',
+      'seongho.codex-vscode-terminal-tools-0.0.1',
+    ),
+    wrapperPath: path.join(home, '.local', 'bin', 'patch-vscode-terminal-order'),
+    imeWrapperPath: path.join(home, '.local', 'bin', 'patch-vscode-ime-guard'),
+    workbenchPath:
+      process.env.VSCODE_WORKBENCH_MAIN ||
+      '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
+    workbenchCssPath:
+      process.env.VSCODE_WORKBENCH_CSS ||
+      '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css',
+    mainPath:
+      process.env.VSCODE_MAIN_PATH ||
+      '/Applications/Visual Studio Code.app/Contents/Resources/app/out/main.js',
+    claudeExtensionsDir: path.join(home, '.vscode', 'extensions'),
+    vscodeIconSourcePath:
+      process.env.CODEX_VSCODE_ICON_SOURCE || path.join(projectRoot, 'assets', 'warp-glass-sky.icns'),
+    vscodeIconPngSourcePath:
+      process.env.CODEX_VSCODE_ICON_PNG_SOURCE || path.join(projectRoot, 'assets', 'warp-glass-sky.png'),
+    vscodeIconPath:
+      process.env.VSCODE_ICON_PATH ||
+      '/Applications/Visual Studio Code.app/Contents/Resources/Code.icns',
+    vscodeAppPath:
+      process.env.VSCODE_APP_PATH || '/Applications/Visual Studio Code.app',
+    vscodeDockIconPngPath:
+      process.env.VSCODE_DOCK_ICON_PNG_PATH ||
+      '/Applications/Visual Studio Code.app/Contents/Resources/codex-warp-glass-sky.png',
+  };
+}
+
+function stripJsoncComments(text) {
+  let result = '';
+  let inString = false;
+  let quote = '';
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (inString) {
+      result += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      inString = true;
+      quote = char;
+      result += char;
+      continue;
+    }
+
+    if (char === '/' && next === '/') {
+      while (index < text.length && text[index] !== '\n') {
+        index += 1;
+      }
+      result += '\n';
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function removeTrailingCommas(text) {
+  let result = '';
+  let inString = false;
+  let quote = '';
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      result += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      inString = true;
+      quote = char;
+      result += char;
+      continue;
+    }
+
+    if (char === ',') {
+      let cursor = index + 1;
+      while (/\s/.test(text[cursor] || '')) {
+        cursor += 1;
+      }
+      if (text[cursor] === '}' || text[cursor] === ']') {
+        continue;
+      }
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function parseJsonc(text) {
+  const stripped = removeTrailingCommas(stripJsoncComments(text));
+  return JSON.parse(stripped);
+}
+
+function readJsoncFile(filePath, fallback) {
+  if (!fs.existsSync(filePath)) {
+    return fallback;
+  }
+
+  return parseJsonc(fs.readFileSync(filePath, 'utf8'));
+}
+
+function stringifyJson(value) {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function deepEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function normalizeSettings(settings) {
+  const value = { ...settings };
+
+  for (const [key, settingValue] of Object.entries(MANAGED_SETTINGS)) {
+    value[key] = settingValue;
+  }
+
+  value['workbench.colorCustomizations'] = {
+    ...(value['workbench.colorCustomizations'] || {}),
+    ...MANAGED_COLOR_CUSTOMIZATIONS,
+  };
+
+  const commandsToSkipShell = Array.isArray(value['terminal.integrated.commandsToSkipShell'])
+    ? value['terminal.integrated.commandsToSkipShell'].filter(
+        (command) => !LEGACY_MANAGED_COMMANDS_TO_SKIP_SHELL.includes(command),
+      )
+    : [];
+  for (const command of MANAGED_COMMANDS_TO_SKIP_SHELL) {
+    if (!commandsToSkipShell.includes(command)) {
+      commandsToSkipShell.push(command);
+    }
+  }
+  value['terminal.integrated.commandsToSkipShell'] = commandsToSkipShell;
+
+  const applyToAllProfiles = Array.isArray(value['workbench.settings.applyToAllProfiles'])
+    ? [...value['workbench.settings.applyToAllProfiles']]
+    : [];
+  for (const setting of MANAGED_APPLY_TO_ALL_PROFILES) {
+    if (!applyToAllProfiles.includes(setting)) {
+      applyToAllProfiles.push(setting);
+    }
+  }
+  value['workbench.settings.applyToAllProfiles'] = applyToAllProfiles;
+
+  return {
+    value,
+    changed: !deepEqual(settings, value),
+  };
+}
+
+function sameKeybinding(left, right) {
+  return (
+    left &&
+    right &&
+    left.key === right.key &&
+    left.command === right.command &&
+    left.when === right.when &&
+    deepEqual(left.args, right.args)
+  );
+}
+
+function isManagedKeybindingSlot(entry) {
+  return MANAGED_KEYBINDING_REPLACEMENTS.some(
+    (replacement) => entry.key === replacement.key && entry.when === replacement.when,
+  );
+}
+
+function normalizeKeybindings(keybindings) {
+  const source = Array.isArray(keybindings) ? keybindings : [];
+  const pending = [...MANAGED_KEYBINDINGS];
+  const value = [];
+
+  for (const entry of source) {
+    if (!isManagedKeybindingSlot(entry)) {
+      value.push(entry);
+      continue;
+    }
+
+    const managedIndex = pending.findIndex(
+      (managed) => managed.key === entry.key && managed.when === entry.when,
+    );
+    if (managedIndex === -1) {
+      continue;
+    }
+
+    value.push(pending[managedIndex]);
+    pending.splice(managedIndex, 1);
+  }
+
+  value.push(...pending);
+
+  const changed =
+    source.length !== value.length ||
+    value.some((entry, index) => !sameKeybinding(entry, source[index]));
+
+  return {
+    value,
+    changed,
+  };
+}
+
+function normalizeZshrc(source) {
+  let value = source || '';
+
+  if (MANAGED_ZSH_BLOCK_RE.test(value)) {
+    value = value.replace(MANAGED_ZSH_BLOCK_RE, ZSH_CWD_TITLE_SNIPPET);
+  } else if (LEGACY_ZSH_BLOCK_RE.test(value)) {
+    value = value.replace(LEGACY_ZSH_BLOCK_RE, ZSH_CWD_TITLE_SNIPPET);
+  } else if (value.includes('source $ZSH/oh-my-zsh.sh')) {
+    value = value.replace('source $ZSH/oh-my-zsh.sh', `source $ZSH/oh-my-zsh.sh\n\n${ZSH_CWD_TITLE_SNIPPET.trimEnd()}`);
+    if (!value.endsWith('\n')) {
+      value += '\n';
+    }
+  } else {
+    value = `${value.replace(/\s*$/, '\n\n')}${ZSH_CWD_TITLE_SNIPPET}`;
+  }
+
+  return {
+    value,
+    changed: value !== source,
+  };
+}
+
+function parseTomlStringArray(value) {
+  const items = [];
+  const itemRe = /"((?:\\.|[^"\\])*)"/g;
+  let match;
+  while ((match = itemRe.exec(value))) {
+    try {
+      items.push(JSON.parse(`"${match[1]}"`));
+    } catch {
+      return [];
+    }
+  }
+  return items;
+}
+
+function stringifyTomlStringArray(values) {
+  return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
+}
+
+function normalizeCodexTerminalTitleComponents(components) {
+  const normalized = components.filter((component) => typeof component === 'string' && component);
+  const value = normalized.length ? [...normalized] : [...DEFAULT_CODEX_TERMINAL_TITLE];
+
+  if (!value.includes(CODEX_TERMINAL_TITLE_THREAD_ID)) {
+    const fastModeIndex = value.indexOf('fast-mode');
+    if (fastModeIndex >= 0) {
+      value.splice(fastModeIndex, 0, CODEX_TERMINAL_TITLE_THREAD_ID);
+    } else {
+      value.push(CODEX_TERMINAL_TITLE_THREAD_ID);
+    }
+  }
+
+  return value;
+}
+
+function normalizeCodexConfigToml(source = '') {
+  const terminalTitleRe = /^terminal_title\s*=\s*(\[[^\n]*\])\s*$/m;
+  const match = source.match(terminalTitleRe);
+  const components = match ? parseTomlStringArray(match[1]) : DEFAULT_CODEX_TERMINAL_TITLE;
+  const terminalTitleLine = `terminal_title = ${stringifyTomlStringArray(
+    normalizeCodexTerminalTitleComponents(components),
+  )}`;
+  let value;
+
+  if (match) {
+    value = source.replace(terminalTitleRe, terminalTitleLine);
+  } else {
+    value = `${source.replace(/\s*$/, '\n\n')}${terminalTitleLine}\n`;
+  }
+
+  return {
+    value,
+    changed: value !== source,
+  };
+}
+
+function expectedWrapperSource(projectRoot, npmScript = 'patch') {
+  return [
+    '#!/bin/sh',
+    'set -eu',
+    '',
+    `cd ${projectRoot}`,
+    `exec npm run ${npmScript}`,
+    '',
+  ].join('\n');
+}
+
+function ensurePatchWrapper({ wrapperPath, projectRoot, npmScript }) {
+  const expected = expectedWrapperSource(projectRoot, npmScript);
+  const current = fs.existsSync(wrapperPath) ? fs.readFileSync(wrapperPath, 'utf8') : undefined;
+
+  if (current === expected) {
+    return { changed: false };
+  }
+
+  fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });
+  fs.writeFileSync(wrapperPath, expected, { mode: 0o755 });
+  fs.chmodSync(wrapperPath, 0o755);
+
+  return { changed: true };
+}
+
+function ensureGlobalPatchWrapper({ wrapperPath, projectRoot }) {
+  return ensurePatchWrapper({ wrapperPath, projectRoot, npmScript: 'patch' });
+}
+
+function ensureImeGuardPatchWrapper({ wrapperPath, projectRoot }) {
+  return ensurePatchWrapper({ wrapperPath, projectRoot, npmScript: 'patch:vscode-ime-guard' });
+}
+
+function ensureExtensionLink({ extensionPath, projectRoot }) {
+  if (fs.existsSync(extensionPath)) {
+    const realPath = fs.realpathSync(extensionPath);
+    if (realPath === fs.realpathSync(projectRoot)) {
+      return { changed: false };
+    }
+    throw new Error(`Extension path already exists and does not point to ${projectRoot}: ${extensionPath}`);
+  }
+
+  fs.mkdirSync(path.dirname(extensionPath), { recursive: true });
+  fs.symlinkSync(projectRoot, extensionPath);
+  return { changed: true };
+}
+
+function writeIfChanged(filePath, nextSource) {
+  const current = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : undefined;
+  if (current === nextSource) {
+    return { changed: false };
+  }
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, nextSource);
+  return { changed: true };
+}
+
+function applyHostConfig({ paths = createDefaultPaths() } = {}) {
+  const settings = normalizeSettings(readJsoncFile(paths.userSettingsPath, {}));
+  const keybindings = normalizeKeybindings(readJsoncFile(paths.userKeybindingsPath, []));
+  const zshrc = normalizeZshrc(fs.existsSync(paths.zshrcPath) ? fs.readFileSync(paths.zshrcPath, 'utf8') : '');
+  const codexConfig = normalizeCodexConfigToml(
+    fs.existsSync(paths.codexConfigPath) ? fs.readFileSync(paths.codexConfigPath, 'utf8') : '',
+  );
+  const wrapper = ensureGlobalPatchWrapper({
+    wrapperPath: paths.wrapperPath,
+    projectRoot: paths.projectRoot,
+  });
+  const imeWrapper = ensureImeGuardPatchWrapper({
+    wrapperPath: paths.imeWrapperPath,
+    projectRoot: paths.projectRoot,
+  });
+  const extension = ensureExtensionLink({
+    extensionPath: paths.extensionPath,
+    projectRoot: paths.projectRoot,
+  });
+
+  const results = [
+    {
+      id: 'settings',
+      ...(settings.changed
+        ? writeIfChanged(paths.userSettingsPath, stringifyJson(settings.value))
+        : { changed: false }),
+    },
+    {
+      id: 'keybindings',
+      ...(keybindings.changed
+        ? writeIfChanged(paths.userKeybindingsPath, stringifyJson(keybindings.value))
+        : { changed: false }),
+    },
+    {
+      id: 'zshrc',
+      ...(zshrc.changed ? writeIfChanged(paths.zshrcPath, zshrc.value) : { changed: false }),
+    },
+    {
+      id: 'codexConfig',
+      ...(codexConfig.changed
+        ? writeIfChanged(paths.codexConfigPath, codexConfig.value)
+        : { changed: false }),
+    },
+    {
+      id: 'wrapper',
+      ...wrapper,
+    },
+    {
+      id: 'imeWrapper',
+      ...imeWrapper,
+    },
+    {
+      id: 'extension',
+      ...extension,
+    },
+  ];
+
+  return results;
+}
+
+function hasExpectedSettings(settings) {
+  const normalized = normalizeSettings(settings).value;
+  return deepEqual(settings, normalized);
+}
+
+function hasExpectedKeybindings(keybindings) {
+  return MANAGED_KEYBINDINGS.every((managed) =>
+    keybindings.some((entry) => sameKeybinding(entry, managed)),
+  );
+}
+
+function hasExpectedZshrc(source) {
+  return (
+    source.includes('# BEGIN codex-vscode-terminal-tools: vscode-cwd-title') ||
+    (source.includes('_vscode_cwd_title()') &&
+      source.includes('add-zsh-hook -d precmd _vscode_cwd_title') &&
+      source.includes('add-zsh-hook chpwd _vscode_cwd_title'))
+  );
+}
+
+function hasExpectedCodexConfig(source) {
+  if (typeof source !== 'string') {
+    return false;
+  }
+
+  const match = source.match(/^terminal_title\s*=\s*(\[[^\n]*\])\s*$/m);
+  if (!match) {
+    return false;
+  }
+
+  return parseTomlStringArray(match[1]).includes(CODEX_TERMINAL_TITLE_THREAD_ID);
+}
+
+function hasExpectedWrapper(wrapperPath, projectRoot) {
+  return fs.existsSync(wrapperPath) && fs.readFileSync(wrapperPath, 'utf8') === expectedWrapperSource(projectRoot);
+}
+
+function hasExpectedImeWrapper(wrapperPath, projectRoot) {
+  return (
+    fs.existsSync(wrapperPath) &&
+    fs.readFileSync(wrapperPath, 'utf8') === expectedWrapperSource(projectRoot, 'patch:vscode-ime-guard')
+  );
+}
+
+function hasExpectedExtension(extensionPath, projectRoot) {
+  return fs.existsSync(extensionPath) && fs.realpathSync(extensionPath) === fs.realpathSync(projectRoot);
+}
+
+function checkWorkbenchPatches(workbenchPath) {
+  if (!fs.existsSync(workbenchPath)) {
+    return { ok: false, detail: 'workbench bundle missing' };
+  }
+
+  const source = fs.readFileSync(workbenchPath, 'utf8');
+  const missing = [];
+
+  for (const [name, marker] of [
+    ['terminal order', TERMINAL_ORDER_MARKER],
+    ['terminal color remember', TERMINAL_COLOR_MARKER],
+    ['terminal color argument', TERMINAL_COLOR_ARGUMENT_MARKER],
+    ['terminal empty-area focus', TERMINAL_EMPTY_AREA_MARKER],
+    ['terminal native empty-area focus', TERMINAL_EMPTY_NATIVE_MARKER],
+    ['IME guard helper', IME_GUARD_MARKER],
+    ['IME early-capture hook', IME_EARLY_CAPTURE_MARKER],
+    ['IME recent-composition defer', IME_RECENT_COMPOSITION_MARKER],
+    ['IME terminal-target defer', IME_TERMINAL_TARGET_MARKER],
+    ['IME native line-break suppressor', IME_NATIVE_LINEBREAK_MARKER],
+    ['IME native paragraph suppressor', IME_NATIVE_PARAGRAPH_MARKER],
+    ['IME native CR suppressor', IME_NATIVE_CR_MARKER],
+    ['IME native keypress suppressor', IME_NATIVE_KEYPRESS_MARKER],
+    ['IME terminal commit deferral', IME_TERMINAL_COMMIT_DEFERRAL_MARKER],
+    ['IME terminal native commit preservation', IME_TERMINAL_NATIVE_COMMIT_MARKER],
+    ['IME activity quiet-window tracking', IME_ACTIVITY_QUIET_WINDOW_MARKER],
+    ['IME terminal key handler', IME_TERMINAL_KEY_HANDLER_MARKER],
+    ['IME terminal direct sequence emitter', IME_TERMINAL_DIRECT_SEQUENCE_MARKER],
+    ['IME terminal direct sequence dedupe', IME_TERMINAL_DIRECT_SEQUENCE_DEDUPE_MARKER],
+    ['IME terminal sequence queue', IME_TERMINAL_SEQUENCE_QUEUE_MARKER],
+    ['IME terminal legacy LF consume', IME_TERMINAL_LEGACY_LF_CONSUME_MARKER],
+    ['IME terminal CR sequence queue', IME_TERMINAL_CR_QUEUE_MARKER],
+    ['IME terminal sequence dedupe', IME_TERMINAL_SEQUENCE_DEDUPE_MARKER],
+    ['IME sendSequence hook', IME_TERMINAL_SEND_SEQUENCE_MARKER],
+    ['IME dispatch hook', IME_DISPATCH_MARKER],
+  ]) {
+    if (!source.includes(marker)) {
+      missing.push(name);
+    }
+  }
+
+  return {
+    ok: missing.length === 0,
+    detail: missing.length === 0 ? 'all workbench patches present' : `missing: ${missing.join(', ')}`,
+  };
+}
+
+function checkClaudeTitleMenus(extensionsDir) {
+  if (!fs.existsSync(extensionsDir)) {
+    return { ok: true, detail: 'Claude Code extension not installed' };
+  }
+
+  const packagePaths = fs
+    .readdirSync(extensionsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith('anthropic.claude-code-'))
+    .map((entry) => path.join(extensionsDir, entry.name, 'package.json'))
+    .filter((packagePath) => fs.existsSync(packagePath));
+
+  if (packagePaths.length === 0) {
+    return { ok: true, detail: 'Claude Code extension not installed' };
+  }
+
+  const unpatched = [];
+  for (const packagePath of packagePaths) {
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    const menu = packageJson.contributes?.menus?.['editor/title'];
+    const targets = Array.isArray(menu)
+      ? menu.filter((entry) =>
+          ['claude-vscode.editor.openLast', 'claude-vscode.terminal.open'].includes(entry.command),
+        )
+      : [];
+    if (targets.length === 0 || targets.some((entry) => entry.when !== 'false')) {
+      unpatched.push(packagePath);
+    }
+  }
+
+  return {
+    ok: unpatched.length === 0,
+    detail: unpatched.length === 0 ? 'Claude title menu patched' : `unpatched: ${unpatched.join(', ')}`,
+  };
+}
+
+function checkVscodeIconPatch({ sourcePath, targetPath, appBundlePath }) {
+  if (!fs.existsSync(sourcePath)) {
+    return { ok: false, detail: 'managed Warp Glass Sky icon missing' };
+  }
+
+  if (!fs.existsSync(targetPath)) {
+    return { ok: false, detail: 'VS Code icon missing' };
+  }
+
+  const sourceIcon = fs.readFileSync(sourcePath);
+  const targetIcon = fs.readFileSync(targetPath);
+  const iconsMatch = sourceIcon.equals(targetIcon);
+
+  if (!iconsMatch) {
+    return {
+      ok: false,
+      detail: 'VS Code icon differs from managed Warp Glass Sky icon',
+    };
+  }
+
+  if (appBundlePath && fs.existsSync(appBundlePath)) {
+    const customIconPath = path.join(appBundlePath, 'Icon\r');
+    if (!fs.existsSync(customIconPath)) {
+      return {
+        ok: false,
+        detail: 'VS Code Finder custom app icon missing',
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    detail: appBundlePath
+      ? 'VS Code icon and Finder custom app icon match managed Warp Glass Sky icon'
+      : 'VS Code icon matches managed Warp Glass Sky icon',
+  };
+}
+
+function checkVscodeWatermarkPatch(cssPath) {
+  if (!fs.existsSync(cssPath)) {
+    return { ok: false, detail: 'VS Code workbench CSS missing' };
+  }
+
+  const source = fs.readFileSync(cssPath, 'utf8');
+  const ok = source.includes(WATERMARK_PATCH_MARKER) && source.includes(WATERMARK_PATCH_RULE);
+
+  return {
+    ok,
+    detail: ok ? 'empty editor watermark logo is hidden' : 'empty editor watermark logo patch missing',
+  };
+}
+
+function checkVscodeDockIconPatch({ mainPath, pngSourcePath, pngTargetPath }) {
+  if (!fs.existsSync(mainPath)) {
+    return { ok: false, detail: 'VS Code main bundle missing' };
+  }
+
+  if (!fs.existsSync(pngSourcePath)) {
+    return { ok: false, detail: 'managed Dock icon PNG missing' };
+  }
+
+  if (!fs.existsSync(pngTargetPath)) {
+    return { ok: false, detail: 'VS Code Dock icon PNG asset missing' };
+  }
+
+  const sourcePng = fs.readFileSync(pngSourcePath);
+  const targetPng = fs.readFileSync(pngTargetPath);
+  if (!sourcePng.equals(targetPng)) {
+    return { ok: false, detail: 'VS Code Dock icon PNG asset differs from managed icon' };
+  }
+
+  const source = fs.readFileSync(mainPath, 'utf8');
+  const ok = source.includes(DOCK_ICON_PATCH_MARKER);
+
+  return {
+    ok,
+    detail: ok ? 'runtime Dock icon patch is present' : 'runtime Dock icon patch missing',
+  };
+}
+
+function status(id, ok, detail) {
+  return { id, ok, detail };
+}
+
+function checkHostConfig({
+  paths = createDefaultPaths(),
+  checkWorkbench = true,
+  checkClaude = true,
+  checkVscodeIcon = true,
+  checkDockIcon = true,
+  checkWatermark = true,
+} = {}) {
+  const settings = fs.existsSync(paths.userSettingsPath)
+    ? readJsoncFile(paths.userSettingsPath, {})
+    : undefined;
+  const keybindings = fs.existsSync(paths.userKeybindingsPath)
+    ? readJsoncFile(paths.userKeybindingsPath, [])
+    : undefined;
+  const zshrc = fs.existsSync(paths.zshrcPath) ? fs.readFileSync(paths.zshrcPath, 'utf8') : undefined;
+  const codexConfig = fs.existsSync(paths.codexConfigPath)
+    ? fs.readFileSync(paths.codexConfigPath, 'utf8')
+    : undefined;
+  const statuses = [
+    status('settings', Boolean(settings && hasExpectedSettings(settings)), paths.userSettingsPath),
+    status('keybindings', Boolean(keybindings && hasExpectedKeybindings(keybindings)), paths.userKeybindingsPath),
+    status('zshrc', Boolean(zshrc && hasExpectedZshrc(zshrc)), paths.zshrcPath),
+    status(
+      'codexConfig',
+      Boolean(codexConfig && hasExpectedCodexConfig(codexConfig)),
+      paths.codexConfigPath,
+    ),
+    status(
+      'extension',
+      hasExpectedExtension(paths.extensionPath, paths.projectRoot),
+      `${paths.extensionPath} -> ${paths.projectRoot}`,
+    ),
+    status('wrapper', hasExpectedWrapper(paths.wrapperPath, paths.projectRoot), paths.wrapperPath),
+    status(
+      'imeWrapper',
+      hasExpectedImeWrapper(paths.imeWrapperPath, paths.projectRoot),
+      paths.imeWrapperPath,
+    ),
+  ];
+
+  if (checkWorkbench) {
+    const workbench = checkWorkbenchPatches(paths.workbenchPath);
+    statuses.push(status('workbench', workbench.ok, workbench.detail));
+  }
+
+  if (checkClaude) {
+    const claude = checkClaudeTitleMenus(paths.claudeExtensionsDir);
+    statuses.push(status('claude', claude.ok, claude.detail));
+  }
+
+  if (checkVscodeIcon) {
+    const vscodeIcon = checkVscodeIconPatch({
+      sourcePath: paths.vscodeIconSourcePath,
+      targetPath: paths.vscodeIconPath,
+      appBundlePath: paths.vscodeAppPath,
+    });
+    statuses.push(status('vscodeIcon', vscodeIcon.ok, vscodeIcon.detail));
+  }
+
+  if (checkDockIcon) {
+    const dockIcon = checkVscodeDockIconPatch({
+      mainPath: paths.mainPath,
+      pngSourcePath: paths.vscodeIconPngSourcePath,
+      pngTargetPath: paths.vscodeDockIconPngPath,
+    });
+    statuses.push(status('dockIcon', dockIcon.ok, dockIcon.detail));
+  }
+
+  if (checkWatermark) {
+    const watermark = checkVscodeWatermarkPatch(paths.workbenchCssPath);
+    statuses.push(status('watermark', watermark.ok, watermark.detail));
+  }
+
+  return statuses;
+}
+
+module.exports = {
+  MANAGED_KEYBINDINGS,
+  MANAGED_SETTINGS,
+  applyHostConfig,
+  checkClaudeTitleMenus,
+  checkHostConfig,
+  checkVscodeDockIconPatch,
+  checkVscodeIconPatch,
+  checkVscodeWatermarkPatch,
+  checkWorkbenchPatches,
+  createDefaultPaths,
+  ensureExtensionLink,
+  ensureGlobalPatchWrapper,
+  ensureImeGuardPatchWrapper,
+  normalizeKeybindings,
+  normalizeCodexConfigToml,
+  normalizeSettings,
+  normalizeZshrc,
+  parseJsonc,
+  stringifyJson,
+};
