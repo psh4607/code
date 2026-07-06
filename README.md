@@ -157,6 +157,42 @@ patch-vscode-terminal-order
 Run it again after a VS Code update. The patch backs up the current workbench CSS before appending
 the managed hide rule to each target app.
 
+## Opaque Quick Inputs And Dialogs
+
+The fullscreen background image is kept enabled, but Quick Open/Quick Input and VS Code dialog
+surfaces are forced back to solid workbench colors so the wallpaper does not show through them:
+
+```sh
+npm run patch:vscode-opaque-overlays
+```
+
+The full patch command also applies it:
+
+```sh
+patch-vscode-terminal-order
+```
+
+Run it again after a VS Code update. The patch backs up the current workbench CSS before appending
+the managed opaque overlay rules to each target app.
+
+## Titlebar Center
+
+VS Code can draw the Command Center and agent status controls across the middle of the titlebar.
+This machine hides that center titlebar surface while leaving the rest of the workbench intact:
+
+```sh
+npm run patch:vscode-titlebar-center
+```
+
+The full patch command also applies it:
+
+```sh
+patch-vscode-terminal-order
+```
+
+Run it again after a VS Code update. The patch backs up the current workbench CSS before appending
+the managed hide rule to each target app.
+
 ## Terminal Tabs Layout
 
 The integrated terminal tab list is locally patched to use multi-line rows with slightly roomier

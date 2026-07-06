@@ -101,6 +101,8 @@
     "patch:vscode-dock-icon": "node scripts/patch-vscode-all-targets.js --only patch-vscode-dock-icon.js --only sign-vscode-app.js",
     "patch:vscode-icon": "node scripts/patch-vscode-all-targets.js --only patch-vscode-icon.js --only sign-vscode-app.js",
     "patch:vscode-ime-guard": "node scripts/patch-vscode-all-targets.js --only patch-vscode-ime-guard.js --only sign-vscode-app.js",
+    "patch:vscode-opaque-overlays": "node scripts/patch-vscode-all-targets.js --only patch-vscode-opaque-overlays.js --only sign-vscode-app.js",
+    "patch:vscode-titlebar-center": "node scripts/patch-vscode-all-targets.js --only patch-vscode-titlebar-center.js --only sign-vscode-app.js",
     "patch:vscode-terminal-order": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-order.js --only sign-vscode-app.js",
     "patch:vscode-terminal-tabs-layout": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-tabs-title-breaks.js --only patch-vscode-terminal-tabs-layout.js --only sign-vscode-app.js",
     "patch:vscode-watermark": "node scripts/patch-vscode-all-targets.js --only patch-vscode-watermark.js --only sign-vscode-app.js",

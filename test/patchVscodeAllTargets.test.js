@@ -51,6 +51,8 @@ test('buildPatchSteps passes target-specific env to every bundle patch and signe
       'patch-vscode-icon.js',
       'patch-vscode-dock-icon.js',
       'patch-vscode-watermark.js',
+      'patch-vscode-opaque-overlays.js',
+      'patch-vscode-titlebar-center.js',
       'patch-vscode-terminal-tabs-layout.js',
       'sign-vscode-app.js',
     ],
@@ -61,7 +63,9 @@ test('buildPatchSteps passes target-specific env to every bundle patch and signe
   assert.equal(steps[4].env.VSCODE_MAIN_PATH, target.mainPath);
   assert.equal(steps[4].env.VSCODE_DOCK_ICON_PNG_PATH, target.dockIconPngPath);
   assert.equal(steps[5].env.VSCODE_WORKBENCH_CSS, target.workbenchCssPath);
-  assert.equal(steps[7].env.VSCODE_SIGN_APP_PATH, target.appPath);
+  assert.equal(steps[6].env.VSCODE_WORKBENCH_CSS, target.workbenchCssPath);
+  assert.equal(steps[7].env.VSCODE_WORKBENCH_CSS, target.workbenchCssPath);
+  assert.equal(steps[9].env.VSCODE_SIGN_APP_PATH, target.appPath);
 });
 
 test('buildPatchSteps can run one patch kind plus signing for both target types', () => {

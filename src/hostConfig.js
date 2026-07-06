@@ -181,6 +181,17 @@ const IME_DISPATCH_MARKER =
 const WATERMARK_PATCH_MARKER = 'codex-vscode-terminal-tools: hide-empty-editor-watermark';
 const WATERMARK_PATCH_RULE =
   '.monaco-workbench .part.editor>.content .editor-group-container>.editor-group-watermark-wrapper .editor-group-watermark .letterpress{display:none!important;}';
+const OPAQUE_OVERLAYS_PATCH_MARKER = 'codex-vscode-terminal-tools: opaque-overlays';
+const OPAQUE_OVERLAYS_PATCH_RULES = [
+  '.quick-input-widget{background:var(--vscode-quickInput-background,var(--vscode-editorWidget-background,#252526))!important;background-image:none!important;backdrop-filter:none!important;opacity:1!important;}',
+  '.quick-input-widget .quick-input-list .monaco-list{background:var(--vscode-quickInput-background,var(--vscode-editorWidget-background,#252526))!important;}',
+  '.monaco-dialog-box{background:var(--vscode-editorWidget-background,#252526)!important;background-image:none!important;backdrop-filter:none!important;opacity:1!important;}',
+];
+const TITLEBAR_CENTER_PATCH_MARKER = 'codex-vscode-terminal-tools: hide-titlebar-center';
+const TITLEBAR_CENTER_PATCH_RULES = [
+  '.monaco-workbench .part.titlebar>.titlebar-container>.titlebar-center>.window-title>.command-center{display:none!important;}',
+  '.monaco-workbench .part.titlebar .agent-status-container{display:none!important;}',
+];
 const TERMINAL_TABS_LAYOUT_PATCH_MARKER =
   'codex-vscode-terminal-tools: terminal-tabs-two-line-layout';
 const TERMINAL_TABS_LAYOUT_PATCH_RULES = [
@@ -946,6 +957,38 @@ function checkVscodeWatermarkPatch(cssPath) {
   };
 }
 
+function checkVscodeOpaqueOverlaysPatch(cssPath) {
+  if (!fs.existsSync(cssPath)) {
+    return { ok: false, detail: 'VS Code workbench CSS missing' };
+  }
+
+  const source = fs.readFileSync(cssPath, 'utf8');
+  const ok =
+    source.includes(OPAQUE_OVERLAYS_PATCH_MARKER) &&
+    OPAQUE_OVERLAYS_PATCH_RULES.every((rule) => source.includes(rule));
+
+  return {
+    ok,
+    detail: ok ? 'quick input and dialog overlays are opaque' : 'opaque overlay surface patch missing',
+  };
+}
+
+function checkVscodeTitlebarCenterPatch(cssPath) {
+  if (!fs.existsSync(cssPath)) {
+    return { ok: false, detail: 'VS Code workbench CSS missing' };
+  }
+
+  const source = fs.readFileSync(cssPath, 'utf8');
+  const ok =
+    source.includes(TITLEBAR_CENTER_PATCH_MARKER) &&
+    TITLEBAR_CENTER_PATCH_RULES.every((rule) => source.includes(rule));
+
+  return {
+    ok,
+    detail: ok ? 'titlebar center is hidden' : 'titlebar center patch missing',
+  };
+}
+
 function checkVscodeTerminalTabsLayoutPatch(cssPath) {
   if (!fs.existsSync(cssPath)) {
     return { ok: false, detail: 'VS Code workbench CSS missing' };
@@ -1002,6 +1045,8 @@ function checkHostConfig({
   checkVscodeIcon = true,
   checkDockIcon = true,
   checkWatermark = true,
+  checkOpaqueOverlays = true,
+  checkTitlebarCenter = true,
   checkTerminalTabsLayout = true,
 } = {}) {
   const settings = fs.existsSync(paths.userSettingsPath)
@@ -1101,6 +1146,32 @@ function checkHostConfig({
     statuses.push(status('upstreamWatermark', upstreamWatermark.ok, upstreamWatermark.detail));
   }
 
+  if (checkOpaqueOverlays) {
+    const opaqueOverlays = checkVscodeOpaqueOverlaysPatch(paths.workbenchCssPath);
+    statuses.push(status('opaqueOverlays', opaqueOverlays.ok, opaqueOverlays.detail));
+    const upstreamOpaqueOverlays = checkVscodeOpaqueOverlaysPatch(paths.sourceWorkbenchCssPath);
+    statuses.push(
+      status(
+        'upstreamOpaqueOverlays',
+        upstreamOpaqueOverlays.ok,
+        upstreamOpaqueOverlays.detail,
+      ),
+    );
+  }
+
+  if (checkTitlebarCenter) {
+    const titlebarCenter = checkVscodeTitlebarCenterPatch(paths.workbenchCssPath);
+    statuses.push(status('titlebarCenter', titlebarCenter.ok, titlebarCenter.detail));
+    const upstreamTitlebarCenter = checkVscodeTitlebarCenterPatch(paths.sourceWorkbenchCssPath);
+    statuses.push(
+      status(
+        'upstreamTitlebarCenter',
+        upstreamTitlebarCenter.ok,
+        upstreamTitlebarCenter.detail,
+      ),
+    );
+  }
+
   if (checkTerminalTabsLayout) {
     const terminalTabsLayout = checkVscodeTerminalTabsLayoutPatch(paths.workbenchCssPath);
     statuses.push(status('terminalTabsLayout', terminalTabsLayout.ok, terminalTabsLayout.detail));
@@ -1127,7 +1198,9 @@ module.exports = {
   checkHostConfig,
   checkVscodeDockIconPatch,
   checkVscodeIconPatch,
+  checkVscodeOpaqueOverlaysPatch,
   checkVscodeTerminalTabsLayoutPatch,
+  checkVscodeTitlebarCenterPatch,
   checkVscodeWatermarkPatch,
   checkWorkbenchPatches,
   createDefaultPaths,

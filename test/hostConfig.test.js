@@ -7,7 +7,9 @@ const {
   applyHostConfig,
   checkVscodeDockIconPatch,
   checkVscodeIconPatch,
+  checkVscodeOpaqueOverlaysPatch,
   checkVscodeTerminalTabsLayoutPatch,
+  checkVscodeTitlebarCenterPatch,
   checkVscodeWatermarkPatch,
   checkWorkbenchPatches,
   checkHostConfig,
@@ -418,6 +420,8 @@ test('checkHostConfig reports managed files as ok', () => {
     checkVscodeIcon: false,
     checkDockIcon: false,
     checkWatermark: false,
+    checkOpaqueOverlays: false,
+    checkTitlebarCenter: false,
     checkTerminalTabsLayout: false,
   });
 
@@ -482,6 +486,10 @@ test('checkHostConfig includes managed and upstream bundle patch statuses', () =
     'upstreamDockIcon',
     'watermark',
     'upstreamWatermark',
+    'opaqueOverlays',
+    'upstreamOpaqueOverlays',
+    'titlebarCenter',
+    'upstreamTitlebarCenter',
     'terminalTabsLayout',
     'upstreamTerminalTabsLayout',
   ]) {
@@ -618,6 +626,71 @@ test('checkVscodeWatermarkPatch reports whether the empty editor logo is hidden'
   assert.deepEqual(checkVscodeWatermarkPatch(cssPath), {
     ok: true,
     detail: 'empty editor watermark logo is hidden',
+  });
+});
+
+test('checkVscodeOpaqueOverlaysPatch reports whether quick input and dialogs are opaque', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
+  const cssPath = path.join(tmpDir, 'workbench.desktop.main.css');
+
+  assert.deepEqual(checkVscodeOpaqueOverlaysPatch(cssPath), {
+    ok: false,
+    detail: 'VS Code workbench CSS missing',
+  });
+
+  fs.writeFileSync(cssPath, '.quick-input-widget{position:absolute}.monaco-dialog-box{display:flex}');
+  assert.deepEqual(checkVscodeOpaqueOverlaysPatch(cssPath), {
+    ok: false,
+    detail: 'opaque overlay surface patch missing',
+  });
+
+  fs.writeFileSync(
+    cssPath,
+    [
+      '.quick-input-widget{position:absolute}',
+      '.monaco-dialog-box{display:flex}',
+      '/* codex-vscode-terminal-tools: opaque-overlays. Reapply with patch-vscode-opaque-overlays. */',
+      '.quick-input-widget{background:var(--vscode-quickInput-background,var(--vscode-editorWidget-background,#252526))!important;background-image:none!important;backdrop-filter:none!important;opacity:1!important;}',
+      '.quick-input-widget .quick-input-list .monaco-list{background:var(--vscode-quickInput-background,var(--vscode-editorWidget-background,#252526))!important;}',
+      '.monaco-dialog-box{background:var(--vscode-editorWidget-background,#252526)!important;background-image:none!important;backdrop-filter:none!important;opacity:1!important;}',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(checkVscodeOpaqueOverlaysPatch(cssPath), {
+    ok: true,
+    detail: 'quick input and dialog overlays are opaque',
+  });
+});
+
+test('checkVscodeTitlebarCenterPatch reports whether the titlebar center is hidden', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
+  const cssPath = path.join(tmpDir, 'workbench.desktop.main.css');
+
+  assert.deepEqual(checkVscodeTitlebarCenterPatch(cssPath), {
+    ok: false,
+    detail: 'VS Code workbench CSS missing',
+  });
+
+  fs.writeFileSync(cssPath, '.command-center{display:flex}.agent-status-container{display:flex}');
+  assert.deepEqual(checkVscodeTitlebarCenterPatch(cssPath), {
+    ok: false,
+    detail: 'titlebar center patch missing',
+  });
+
+  fs.writeFileSync(
+    cssPath,
+    [
+      '.command-center{display:flex}',
+      '.agent-status-container{display:flex}',
+      '/* codex-vscode-terminal-tools: hide-titlebar-center. Reapply with patch-vscode-titlebar-center. */',
+      '.monaco-workbench .part.titlebar>.titlebar-container>.titlebar-center>.window-title>.command-center{display:none!important;}',
+      '.monaco-workbench .part.titlebar .agent-status-container{display:none!important;}',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(checkVscodeTitlebarCenterPatch(cssPath), {
+    ok: true,
+    detail: 'titlebar center is hidden',
   });
 });
 

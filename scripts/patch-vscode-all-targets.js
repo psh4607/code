@@ -104,6 +104,18 @@ function allPatchSteps(target) {
       },
     },
     {
+      script: 'patch-vscode-opaque-overlays.js',
+      env: {
+        VSCODE_WORKBENCH_CSS: target.workbenchCssPath,
+      },
+    },
+    {
+      script: 'patch-vscode-titlebar-center.js',
+      env: {
+        VSCODE_WORKBENCH_CSS: target.workbenchCssPath,
+      },
+    },
+    {
       script: 'patch-vscode-terminal-tabs-layout.js',
       env: {
         VSCODE_WORKBENCH_CSS: target.workbenchCssPath,
