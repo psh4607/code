@@ -15,7 +15,11 @@
     "onCommand:codexTerminal.smartPaste",
     "onCommand:codexTerminal.detachWithTtl",
     "onCommand:codexTerminal.attachDetachedSession",
-    "onCommand:codexTerminal.openCurrentPullRequest"
+    "onCommand:codexTerminal.openCurrentPullRequest",
+    "onCommand:codexTerminal.showAgentNotifications",
+    "onCommand:codexTerminal.openLatestAgentNotification",
+    "onCommand:codexTerminal.markAgentNotificationsRead",
+    "onCommand:codexTerminal.clearAgentNotifications"
   ],
   "contributes": {
     "configuration": {
@@ -53,6 +57,17 @@
           "description": "Delay after extension startup before checking restored terminals for Codex sessions that need `codex resume <session-id>`.",
           "default": 1000,
           "minimum": 0
+        },
+        "codexTerminal.agentNotifications.enabled": {
+          "type": "boolean",
+          "description": "Enable Codex and agent lifecycle notifications in the VS Code status bar.",
+          "default": true
+        },
+        "codexTerminal.agentNotifications.pollIntervalMs": {
+          "type": "number",
+          "description": "Interval for polling the local Codex agent notification event log.",
+          "default": 1000,
+          "minimum": 100
         }
       }
     },
@@ -80,6 +95,22 @@
       {
         "command": "codexTerminal.openCurrentPullRequest",
         "title": "Codex: Open Current Pull Request"
+      },
+      {
+        "command": "codexTerminal.showAgentNotifications",
+        "title": "Codex: Show Agent Notifications"
+      },
+      {
+        "command": "codexTerminal.openLatestAgentNotification",
+        "title": "Codex: Open Latest Agent Notification"
+      },
+      {
+        "command": "codexTerminal.markAgentNotificationsRead",
+        "title": "Codex: Mark Agent Notifications Read"
+      },
+      {
+        "command": "codexTerminal.clearAgentNotifications",
+        "title": "Codex: Clear Agent Notifications"
       }
     ],
     "menus": {
@@ -108,6 +139,11 @@
         "command": "codexTerminal.attachDetachedSession",
         "key": "cmd+shift+t",
         "mac": "cmd+shift+t"
+      },
+      {
+        "command": "codexTerminal.openLatestAgentNotification",
+        "key": "cmd+shift+u",
+        "mac": "cmd+shift+u"
       }
     ]
   },
