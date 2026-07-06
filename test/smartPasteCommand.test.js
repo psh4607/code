@@ -5,6 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   clipboardInfoHasImage,
+  createMacClipboardImageDetector,
   createMacClipboardImageFileWriter,
   createSmartPasteCommand,
   pathIsVideoFile,
@@ -38,7 +39,48 @@ function createFakeVscode({ terminal = true } = {}) {
   };
 }
 
-test('smart paste writes image clipboard to a temp PNG path and inserts the path', async () => {
+test('smart paste sends Ctrl+V to the terminal when the clipboard has an image', async () => {
+  const fake = createFakeVscode();
+  let wroteImageFile = false;
+
+  await createSmartPasteCommand(fake.vscode, {
+    async getClipboardVideoFilePath() {
+      return undefined;
+    },
+    async hasClipboardImage() {
+      return true;
+    },
+    async writeClipboardImageFile() {
+      wroteImageFile = true;
+      return '/tmp/codex-vscode-clipboard-image.png';
+    },
+  })();
+
+  assert.deepEqual(fake.sent, [['\x16', false]]);
+  assert.equal(wroteImageFile, false);
+  assert.deepEqual(fake.executedCommands, []);
+});
+
+test('smart paste skips video detection when the clipboard has an image', async () => {
+  const fake = createFakeVscode();
+  let checkedVideoFile = false;
+
+  await createSmartPasteCommand(fake.vscode, {
+    async getClipboardVideoFilePath() {
+      checkedVideoFile = true;
+      return '/Users/seongho/Desktop/clip.mov';
+    },
+    async hasClipboardImage() {
+      return true;
+    },
+  })();
+
+  assert.equal(checkedVideoFile, false);
+  assert.deepEqual(fake.sent, [['\x16', false]]);
+  assert.deepEqual(fake.executedCommands, []);
+});
+
+test('smart paste can write image clipboard to a temp PNG path and insert the path', async () => {
   const fake = createFakeVscode();
 
   await createSmartPasteCommand(fake.vscode, {
@@ -51,13 +93,14 @@ test('smart paste writes image clipboard to a temp PNG path and inserts the path
     async writeClipboardImageFile() {
       return '/tmp/codex-vscode-clipboard-image.png';
     },
+    imagePasteMode: 'file',
   })();
 
   assert.deepEqual(fake.sent, [['/tmp/codex-vscode-clipboard-image.png', false]]);
   assert.deepEqual(fake.executedCommands, []);
 });
 
-test('smart paste inserts a shell-quoted path when the clipboard has a video file', async () => {
+test('smart paste inserts a shell-quoted path when the clipboard has a video file and no image', async () => {
   const fake = createFakeVscode();
 
   await createSmartPasteCommand(fake.vscode, {
@@ -65,7 +108,7 @@ test('smart paste inserts a shell-quoted path when the clipboard has a video fil
       return "/Users/seongho/Desktop/screen recording's clip.mov";
     },
     async hasClipboardImage() {
-      return true;
+      return false;
     },
   })();
 
@@ -118,6 +161,7 @@ test('smart paste falls back to VS Code terminal paste when saving the image fai
     async writeClipboardImageFile() {
       throw new Error('clipboard write failed');
     },
+    imagePasteMode: 'file',
   })();
 
   assert.deepEqual(fake.sent, []);
@@ -147,8 +191,26 @@ test('mac clipboard image writer exports the PNG clipboard flavor to a temp path
   assert.match(path.basename(imagePath), /^clipboard-image-2026-07-06T05-00-00-123Z-\d+\.png$/);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].command, 'osascript');
+  assert.equal(calls[0].options.timeout, 5000);
   assert.equal(calls[0].options.env.CODEX_VSCODE_CLIPBOARD_IMAGE_PATH, imagePath);
   assert.equal(calls[0].args.includes('set pngData to the clipboard as «class PNGf»'), true);
+});
+
+test('mac clipboard image detector reads pasteboard types without clipboard info', async () => {
+  const calls = [];
+  const hasClipboardImage = createMacClipboardImageDetector({
+    execFile(command, args, options, callback) {
+      calls.push({ command, args, options });
+      callback(null, 'public.png\npublic.tiff\n', '');
+    },
+    platform: 'darwin',
+  });
+
+  assert.equal(await hasClipboardImage(), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'osascript');
+  assert.deepEqual(calls[0].args.slice(0, 3), ['-l', 'JavaScript', '-e']);
+  assert.equal(calls[0].args.join(' ').includes('clipboard info'), false);
 });
 
 test('clipboardInfoHasImage detects common macOS image clipboard flavors', () => {

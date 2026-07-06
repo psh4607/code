@@ -296,16 +296,23 @@ Use the log to choose the next patch:
 ## Smart Terminal Paste
 
 The extension binds `Cmd+V` in the integrated terminal to `codexTerminal.smartPaste`.
-On macOS it checks clipboard type metadata with `osascript -e 'clipboard info'`.
-If the clipboard contains a copied video file such as `.mov`, `.mp4`, `.mkv`, or `.webm`, it reads the clipboard file URL and inserts the shell-quoted POSIX path into the active terminal without pressing Enter.
-Video file detection runs before image detection because Finder can expose preview image flavors for copied media files.
-If the clipboard contains an image flavor such as PNG, TIFF, JPEG, GIF, or HEIC, it writes the PNG clipboard flavor to a temp file under `codex-vscode-terminal-tools` in the macOS temp directory, then inserts that absolute `.png` path into the active terminal without pressing Enter.
+On macOS it checks clipboard type metadata through `NSPasteboard.types` via JXA `osascript`, avoiding
+the slower `clipboard info` size scan for large image clipboards.
+If the clipboard contains an image flavor such as PNG, TIFF, JPEG, GIF, or HEIC, it sends `Ctrl+V`
+to the active terminal without pressing Enter so Codex can read the clipboard image directly.
+Image detection runs before video file detection so image paste stays close to native `Ctrl+V`
+latency, even when Finder exposes preview image flavors for copied media files.
+If the clipboard has no image flavor but contains a copied video file such as `.mov`, `.mp4`, `.mkv`,
+or `.webm`, it reads the clipboard file URL and inserts the shell-quoted POSIX path into the active
+terminal without pressing Enter.
+The older temp-PNG path insertion remains as a test-covered fallback mode for rollback or local
+experiments.
 This avoids VS Code's terminal paste command for bitmap clips because the command reads text and file resources, not raw image clipboard flavors.
 Otherwise it delegates to VS Code's normal `workbench.action.terminal.paste`, so text paste stays unchanged.
 
 `npm run doctor` also reports `smartPaste`. When the current macOS clipboard contains an image
-flavor, it writes that image to a temporary PNG as a smoke test; when the clipboard has no image, it
-skips the export check cleanly.
+flavor, it smoke-tests the temp-PNG fallback export; when the clipboard has no image, it skips the
+fallback export check cleanly.
 
 ## Cwd-Based Terminal Tab Color
 

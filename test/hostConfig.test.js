@@ -562,7 +562,7 @@ test('checkHostConfig reports managed files as ok', () => {
     checkTerminalTabsLayout: false,
     checkSmartPasteImageClipboard: () => ({
       ok: true,
-      detail: 'clipboard has no image; image export smoke skipped',
+      detail: 'clipboard has no image; image file fallback smoke skipped',
     }),
   });
 
@@ -684,43 +684,52 @@ test('checkHostConfig includes smart paste image clipboard status', () => {
     checkSmartPaste: true,
     checkSmartPasteImageClipboard: () => ({
       ok: true,
-      detail: 'image clipboard exports to temp PNG',
+      detail: 'image file fallback exports to temp PNG',
     }),
   });
 
   assert.deepEqual(statuses.at(-1), {
     id: 'smartPaste',
     ok: true,
-    detail: 'image clipboard exports to temp PNG',
+    detail: 'image file fallback exports to temp PNG',
   });
 });
 
 test('checkSmartPasteImageClipboard fails when detected image export fails', () => {
+  const calls = [];
   const result = checkSmartPasteImageClipboard({
     platform: 'darwin',
-    execFileSync(command, args) {
-      if (command === 'osascript' && args.at(-1) === 'clipboard info') {
-        return '«class PNGf», 1234';
+    execFileSync(command, args, options) {
+      calls.push({ command, args, options });
+      if (command === 'osascript' && args.includes('-l') && args.includes('JavaScript')) {
+        return 'public.png\nApple PNG pasteboard type';
       }
       throw new Error('png export failed');
     },
   });
 
   assert.equal(result.ok, false);
-  assert.match(result.detail, /image clipboard export failed: png export failed/);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].options.timeout, 5000);
+  assert.match(result.detail, /image file fallback export failed: png export failed/);
 });
 
 test('checkSmartPasteImageClipboard skips cleanly when clipboard has no image', () => {
+  const calls = [];
   const result = checkSmartPasteImageClipboard({
     platform: 'darwin',
-    execFileSync() {
-      return 'utf8, 12';
+    execFileSync(command, args) {
+      calls.push({ command, args });
+      return 'public.utf8-plain-text';
     },
   });
 
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'osascript');
+  assert.deepEqual(calls[0].args.slice(0, 3), ['-l', 'JavaScript', '-e']);
   assert.deepEqual(result, {
     ok: true,
-    detail: 'clipboard has no image; image export smoke skipped',
+    detail: 'clipboard has no image; image file fallback smoke skipped',
   });
 });
 

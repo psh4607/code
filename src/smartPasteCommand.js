@@ -4,6 +4,12 @@ const os = require('node:os');
 const path = require('node:path');
 
 const DEFAULT_TERMINAL_PASTE_COMMAND = 'workbench.action.terminal.paste';
+const DEFAULT_IMAGE_PASTE_MODE = 'terminal-control-v';
+const IMAGE_PASTE_MODE_FILE = 'file';
+const MAC_CLIPBOARD_IMAGE_EXPORT_TIMEOUT_MS = 5000;
+const MAC_CLIPBOARD_TYPES_SCRIPT =
+  'ObjC.import("AppKit"); ObjC.deepUnwrap($.NSPasteboard.generalPasteboard.types).join("\\n")';
+const TERMINAL_CONTROL_V = '\x16';
 const VIDEO_FILE_EXTENSIONS = new Set([
   '.3gp',
   '.avi',
@@ -51,6 +57,10 @@ function execFileText(execFile, command, args, options) {
   });
 }
 
+function macClipboardTypesOsascriptArgs() {
+  return ['-l', 'JavaScript', '-e', MAC_CLIPBOARD_TYPES_SCRIPT];
+}
+
 function createMacClipboardVideoFileDetector({
   execFile = childProcess.execFile,
   platform = process.platform,
@@ -95,7 +105,7 @@ function createMacClipboardImageDetector({
       return false;
     }
 
-    const output = await execFileText(execFile, 'osascript', ['-e', 'clipboard info'], {
+    const output = await execFileText(execFile, 'osascript', macClipboardTypesOsascriptArgs(), {
       maxBuffer: 1024 * 1024,
       timeout: 1000,
     });
@@ -163,7 +173,7 @@ function createMacClipboardImageFileWriter({
           CODEX_VSCODE_CLIPBOARD_IMAGE_PATH: imagePath,
         },
         maxBuffer: 1024 * 1024,
-        timeout: 1000,
+        timeout: MAC_CLIPBOARD_IMAGE_EXPORT_TIMEOUT_MS,
       },
     );
 
@@ -177,6 +187,7 @@ function createSmartPasteCommand(
     getClipboardVideoFilePath = createMacClipboardVideoFileDetector(),
     hasClipboardImage = createMacClipboardImageDetector(),
     writeClipboardImageFile = createMacClipboardImageFileWriter(),
+    imagePasteMode = DEFAULT_IMAGE_PASTE_MODE,
     terminalPasteCommand = DEFAULT_TERMINAL_PASTE_COMMAND,
   } = {},
 ) {
@@ -186,23 +197,17 @@ function createSmartPasteCommand(
     let clipboardImageFilePath;
 
     try {
-      clipboardVideoFilePath = await getClipboardVideoFilePath();
-    } catch {
-      clipboardVideoFilePath = undefined;
-    }
-
-    if (clipboardVideoFilePath && vscode.window.activeTerminal) {
-      vscode.window.activeTerminal.sendText(shellQuotePath(clipboardVideoFilePath), false);
-      return;
-    }
-
-    try {
       clipboardHasImage = await hasClipboardImage();
     } catch {
       clipboardHasImage = false;
     }
 
     if (clipboardHasImage && vscode.window.activeTerminal) {
+      if (imagePasteMode !== IMAGE_PASTE_MODE_FILE) {
+        vscode.window.activeTerminal.sendText(TERMINAL_CONTROL_V, false);
+        return;
+      }
+
       try {
         clipboardImageFilePath = await writeClipboardImageFile();
       } catch {
@@ -215,6 +220,17 @@ function createSmartPasteCommand(
       }
     }
 
+    try {
+      clipboardVideoFilePath = await getClipboardVideoFilePath();
+    } catch {
+      clipboardVideoFilePath = undefined;
+    }
+
+    if (clipboardVideoFilePath && vscode.window.activeTerminal) {
+      vscode.window.activeTerminal.sendText(shellQuotePath(clipboardVideoFilePath), false);
+      return;
+    }
+
     await vscode.commands.executeCommand(terminalPasteCommand);
   };
 }
@@ -224,6 +240,8 @@ module.exports = {
   createMacClipboardImageFileWriter,
   createMacClipboardImageDetector,
   createMacClipboardVideoFileDetector,
+  MAC_CLIPBOARD_IMAGE_EXPORT_TIMEOUT_MS,
+  macClipboardTypesOsascriptArgs,
   createSmartPasteCommand,
   pathIsVideoFile,
   shellQuotePath,

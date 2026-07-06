@@ -2,7 +2,11 @@ const fs = require('node:fs');
 const childProcess = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
-const { clipboardInfoHasImage } = require('./smartPasteCommand');
+const {
+  MAC_CLIPBOARD_IMAGE_EXPORT_TIMEOUT_MS,
+  clipboardInfoHasImage,
+  macClipboardTypesOsascriptArgs,
+} = require('./smartPasteCommand');
 const {
   checkManagedCodeApp: checkManagedCodeAppStatus,
   createManagedCodeAppPaths,
@@ -1147,7 +1151,7 @@ function checkSmartPasteImageClipboard({
   let clipboardInfo;
   try {
     clipboardInfo = String(
-      execFileSync('osascript', ['-e', 'clipboard info'], {
+      execFileSync('osascript', macClipboardTypesOsascriptArgs(), {
         encoding: 'utf8',
         maxBuffer: 1024 * 1024,
         timeout: 1000,
@@ -1156,14 +1160,14 @@ function checkSmartPasteImageClipboard({
   } catch (error) {
     return {
       ok: false,
-      detail: `clipboard info failed: ${error.message}`,
+      detail: `clipboard type check failed: ${error.message}`,
     };
   }
 
   if (!clipboardInfoHasImage(clipboardInfo)) {
     return {
       ok: true,
-      detail: 'clipboard has no image; image export smoke skipped',
+      detail: 'clipboard has no image; image file fallback smoke skipped',
     };
   }
 
@@ -1206,7 +1210,7 @@ function checkSmartPasteImageClipboard({
           CODEX_VSCODE_CLIPBOARD_IMAGE_PATH: imagePath,
         },
         maxBuffer: 1024 * 1024,
-        timeout: 1000,
+        timeout: MAC_CLIPBOARD_IMAGE_EXPORT_TIMEOUT_MS,
       },
     );
 
@@ -1216,19 +1220,19 @@ function checkSmartPasteImageClipboard({
     if (size <= 0) {
       return {
         ok: false,
-        detail: 'image clipboard export failed: temp PNG is empty',
+        detail: 'image file fallback export failed: temp PNG is empty',
       };
     }
 
     return {
       ok: true,
-      detail: `image clipboard exports to temp PNG (${size} bytes)`,
+      detail: `image file fallback exports to temp PNG (${size} bytes)`,
     };
   } catch (error) {
     fs.rmSync(imagePath, { force: true });
     return {
       ok: false,
-      detail: `image clipboard export failed: ${error.message}`,
+      detail: `image file fallback export failed: ${error.message}`,
     };
   }
 }
