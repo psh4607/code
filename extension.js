@@ -114,11 +114,12 @@ function activate(context) {
 }
 
 function deactivate() {
-  agentNotificationManager?.dispose();
+  const pending = agentNotificationManager?.dispose();
   titlebarInfoManager?.dispose();
   terminalCwdColorManager?.dispose();
   codexSessionResumeManager?.dispose();
   detachedTerminalTtlManager?.stopForExtensionShutdown();
+  return pending;
 }
 
 module.exports = {

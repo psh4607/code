@@ -21,13 +21,19 @@ function event(overrides = {}) {
   };
 }
 
-function createFakeVscode({ activeTerminal, terminals = [], informationMessageSelection } = {}) {
+function createFakeVscode({
+  activeTerminal,
+  terminals = [],
+  informationMessageSelection,
+  deferGlobalStateUpdates = false,
+} = {}) {
   const statusBarItems = [];
   const informationMessages = [];
   const quickPicks = [];
   const executedCommands = [];
   const globalStateValues = new Map();
   const globalStateUpdates = [];
+  const pendingGlobalStateUpdates = [];
 
   return {
     statusBarItems,
@@ -36,6 +42,7 @@ function createFakeVscode({ activeTerminal, terminals = [], informationMessageSe
     executedCommands,
     globalStateValues,
     globalStateUpdates,
+    pendingGlobalStateUpdates,
     vscode: {
       commands: {
         async executeCommand(command, ...args) {
@@ -85,12 +92,47 @@ function createFakeVscode({ activeTerminal, terminals = [], informationMessageSe
           return globalStateValues.has(key) ? globalStateValues.get(key) : defaultValue;
         },
         async update(key, value) {
+          if (deferGlobalStateUpdates) {
+            return new Promise((resolve) => {
+              pendingGlobalStateUpdates.push({
+                key,
+                value,
+                resolve() {
+                  globalStateValues.set(key, value);
+                  globalStateUpdates.push({ key, value });
+                  resolve();
+                },
+              });
+            });
+          }
           globalStateValues.set(key, value);
           globalStateUpdates.push({ key, value });
         },
       },
     },
   };
+}
+
+async function flushPendingGlobalStateUpdates(fake, promise) {
+  let settled = !promise;
+  if (promise) {
+    Promise.resolve(promise).then(() => {
+      settled = true;
+    });
+  }
+
+  for (let attempt = 0; attempt < 20 && (!settled || fake.pendingGlobalStateUpdates.length > 0); attempt += 1) {
+    const batch = fake.pendingGlobalStateUpdates.splice(0);
+    for (const update of batch) {
+      update.resolve();
+    }
+    await Promise.resolve();
+  }
+
+  assert.equal(fake.pendingGlobalStateUpdates.length, 0);
+  if (promise) {
+    await promise;
+  }
 }
 
 function terminalWithPid(pid) {
@@ -411,6 +453,38 @@ test('manager persists records and seen event ids as notifications change', asyn
   assert.equal(fake.globalStateValues.get('codexTerminal.agentNotifications.records')[0].id, 'event-1');
 
   manager.markAgentNotificationsRead();
+  await manager.dispose();
+
+  assert.equal(fake.globalStateValues.get('codexTerminal.agentNotifications.records')[0].isRead, true);
+});
+
+test('manager serializes notification state writes so older unread snapshots cannot revive read records', async () => {
+  const fake = createFakeVscode({
+    terminals: [terminalWithPid(1234)],
+    deferGlobalStateUpdates: true,
+  });
+  const manager = createAgentNotificationManager(fake.vscode, {
+    context: fake.context,
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event())}\n`,
+  });
+
+  manager.start();
+  await manager.flush();
+  manager.markAgentNotificationsRead();
+
+  if (fake.pendingGlobalStateUpdates.length >= 4) {
+    const [firstSeen, firstRecords, secondSeen, secondRecords] =
+      fake.pendingGlobalStateUpdates.splice(0, 4);
+    secondSeen.resolve();
+    secondRecords.resolve();
+    await Promise.resolve();
+    firstSeen.resolve();
+    firstRecords.resolve();
+    await Promise.resolve();
+  }
+  await flushPendingGlobalStateUpdates(fake, manager.dispose());
 
   assert.equal(fake.globalStateValues.get('codexTerminal.agentNotifications.records')[0].isRead, true);
 });

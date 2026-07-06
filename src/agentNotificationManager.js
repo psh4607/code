@@ -209,14 +209,23 @@ function createAgentNotificationManager(vscode, {
   let statusBarItem;
   let pollTimer;
   let started = false;
+  let pendingPersist = Promise.resolve();
 
   function persistState() {
     if (!context?.globalState?.update) {
-      return;
+      return pendingPersist;
     }
     const seenIds = Array.from(seenEventIds).slice(-MAX_SEEN_EVENT_IDS);
-    void context.globalState.update(SEEN_EVENT_IDS_STORAGE_KEY, seenIds);
-    void context.globalState.update(RECORDS_STORAGE_KEY, notificationStore.records());
+    const records = notificationStore.records();
+    const writeSnapshot = () => Promise.all([
+      context.globalState.update(SEEN_EVENT_IDS_STORAGE_KEY, seenIds),
+      context.globalState.update(RECORDS_STORAGE_KEY, records),
+    ]).then(
+      () => undefined,
+      () => undefined,
+    );
+    pendingPersist = pendingPersist.then(writeSnapshot, writeSnapshot);
+    return pendingPersist;
   }
 
   function updateStatusBar() {
@@ -367,6 +376,7 @@ function createAgentNotificationManager(vscode, {
     statusBarItem?.dispose();
     statusBarItem = undefined;
     started = false;
+    return pendingPersist;
   }
 
   async function showAgentNotifications() {
