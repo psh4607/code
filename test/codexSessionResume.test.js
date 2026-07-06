@@ -373,6 +373,87 @@ test('manager auto-resumes an idle shell from a hook registry pid match', async 
   ]);
 });
 
+test('manager confirms a sent auto-resume after observing the Codex process', async () => {
+  const terminal = createTerminal({
+    name: `inf | ${SESSION_ID_A} | Fast off`,
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastAutoResumedAt: 1000,
+      lastCodexProcessCheckAt: 1000,
+      lastRestoreCheckedAt: 1000,
+      lastRestoreDecision: 'sent',
+      lastSeenAt: 1000,
+      processId: 101,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: `/opt/homebrew/bin/codex resume ${SESSION_ID_A}` },
+    ],
+    now: () => 2000,
+    startTimers: false,
+  });
+
+  await manager.snapshotTerminals({ inspectProcesses: true });
+
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastRestoreDecision,
+    'confirmed',
+  );
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastAutoResumeConfirmedAt,
+    2000,
+  );
+});
+
+test('manager marks a sent auto-resume as unconfirmed after the grace period', async () => {
+  const terminal = createTerminal({
+    name: `inf | ${SESSION_ID_A} | Fast off`,
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastAutoResumedAt: 1000,
+      lastCodexProcessCheckAt: 1000,
+      lastRestoreCheckedAt: 1000,
+      lastRestoreDecision: 'sent',
+      lastSeenAt: 1000,
+      processId: 101,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
+    now: () => 7000,
+    startTimers: false,
+  });
+
+  await manager.snapshotTerminals({ inspectProcesses: true });
+
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastRestoreDecision,
+    'sent:no-confirmation',
+  );
+});
+
 test('manager auto-resumes an idle shell when the restored title directly exposes a session id', async () => {
   const terminal = createTerminal({
     name: `inf | ${SESSION_ID_A} | Fast off`,
@@ -677,6 +758,82 @@ test('manager startup does not clear a previous active Codex record before resto
   });
 
   manager.start();
+  await manager.flush();
+  manager.dispose();
+
+  assert.deepEqual(terminal.sentText, [[`codex resume ${SESSION_ID_A}`, true]]);
+});
+
+test('manager retries auto-resume when shell integration arrives after startup', async () => {
+  const terminal = createTerminal({
+    name: '~/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  manager.start();
+  await manager.flush();
+  assert.deepEqual(terminal.sentText, []);
+
+  terminal.shellIntegration = {
+    cwd: { fsPath: '/Users/seongho/projects/dalpha/inf' },
+  };
+  fake.listeners.shellIntegration[0]();
+  await manager.flush();
+  manager.dispose();
+
+  assert.deepEqual(terminal.sentText, [[`codex resume ${SESSION_ID_A}`, true]]);
+});
+
+test('manager retries auto-resume when terminal process state arrives after startup', async () => {
+  const terminal = createTerminal({
+    name: '~/projects/dalpha/inf',
+    cwd: '/Users/seongho/projects/dalpha/inf',
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  manager.start();
+  await manager.flush();
+  assert.deepEqual(terminal.sentText, []);
+
+  terminal.processId = Promise.resolve(101);
+  fake.listeners.terminalState[0]();
   await manager.flush();
   manager.dispose();
 

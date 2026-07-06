@@ -6,6 +6,7 @@ const { execFile } = require('node:child_process');
 const CODEX_SESSION_RESUME_STORAGE_KEY = 'codexTerminal.codexSessionResume.records';
 const DEFAULT_STARTUP_DELAY_MS = 1000;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 3000;
+const DEFAULT_RESUME_CONFIRMATION_GRACE_MS = 5000;
 const DEFAULT_SESSION_REGISTRY_PATH = path.join(
   os.homedir(),
   '.codex',
@@ -291,6 +292,7 @@ function normalizeRecords(records) {
       title: normalizeTitle(record.title),
     };
     const cwd = normalizeCwd(record.cwd);
+    const lastAutoResumeConfirmedAt = normalizeNumber(record.lastAutoResumeConfirmedAt);
     const lastAutoResumedAt = normalizeNumber(record.lastAutoResumedAt);
     const lastCodexProcessCheckAt = normalizeNumber(record.lastCodexProcessCheckAt);
     const lastObservedCodexProcessAt = normalizeNumber(record.lastObservedCodexProcessAt);
@@ -299,6 +301,9 @@ function normalizeRecords(records) {
 
     if (cwd) {
       normalized.cwd = cwd;
+    }
+    if (lastAutoResumeConfirmedAt !== undefined) {
+      normalized.lastAutoResumeConfirmedAt = lastAutoResumeConfirmedAt;
     }
     if (lastAutoResumedAt !== undefined) {
       normalized.lastAutoResumedAt = lastAutoResumedAt;
@@ -402,6 +407,27 @@ function getConfigured(vscode, key, fallback) {
   return vscode.workspace?.getConfiguration('codexTerminal')?.get(key, fallback) ?? fallback;
 }
 
+function getAutoResumeConfirmationPatch(record, inspection, currentTime, graceMs) {
+  if (record?.lastRestoreDecision !== 'sent' || record.lastAutoResumedAt === undefined) {
+    return {};
+  }
+
+  if (inspection.hasCodexProcess) {
+    return {
+      lastAutoResumeConfirmedAt: currentTime,
+      lastRestoreDecision: 'confirmed',
+    };
+  }
+
+  if (currentTime - record.lastAutoResumedAt >= graceMs) {
+    return {
+      lastRestoreDecision: 'sent:no-confirmation',
+    };
+  }
+
+  return {};
+}
+
 function createCodexSessionResumeManager(vscode, options = {}) {
   const now = options.now ?? Date.now;
   const storage = options.storage ?? createGlobalStateStorage(options.context);
@@ -415,6 +441,8 @@ function createCodexSessionResumeManager(vscode, options = {}) {
   const clearIntervalFn = options.clearInterval ?? clearInterval;
   const startTimers = options.startTimers ?? true;
   const snapshotIntervalMs = options.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
+  const resumeConfirmationGraceMs =
+    options.resumeConfirmationGraceMs ?? DEFAULT_RESUME_CONFIRMATION_GRACE_MS;
   const log = options.log ?? console;
 
   const disposables = [];
@@ -556,6 +584,15 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         nextRecord.codexProcessActive = inspection.hasCodexProcess;
         nextRecord.lastCodexProcessCheckAt = currentTime;
         nextRecord.processId = inspection.processId;
+        Object.assign(
+          nextRecord,
+          getAutoResumeConfirmationPatch(
+            existingRecord,
+            inspection,
+            currentTime,
+            resumeConfirmationGraceMs,
+          ),
+        );
         if (inspection.hasCodexProcess) {
           nextRecord.lastObservedCodexProcessAt = currentTime;
         }
@@ -786,6 +823,11 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     await writeRecords(updatedRecords);
   }
 
+  async function snapshotAndRestoreCodexSessions({ inspectProcesses = false } = {}) {
+    await snapshotTerminals({ inspectProcesses });
+    await restoreCodexSessions();
+  }
+
   function start() {
     if (started) {
       return;
@@ -816,8 +858,8 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     if (vscode.window.onDidChangeTerminalShellIntegration) {
       disposables.push(
         vscode.window.onDidChangeTerminalShellIntegration(() => {
-          runTracked('snapshot Codex terminal records after shell integration change', () =>
-            snapshotTerminals({ inspectProcesses: false }),
+          runTracked('retry Codex session resume after shell integration change', () =>
+            snapshotAndRestoreCodexSessions({ inspectProcesses: false }),
           );
         }),
       );
@@ -826,8 +868,8 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     if (vscode.window.onDidChangeTerminalState) {
       disposables.push(
         vscode.window.onDidChangeTerminalState(() => {
-          runTracked('snapshot Codex terminal records after terminal state change', () =>
-            snapshotTerminals({ inspectProcesses: false }),
+          runTracked('retry Codex session resume after terminal state change', () =>
+            snapshotAndRestoreCodexSessions({ inspectProcesses: false }),
           );
         }),
       );
