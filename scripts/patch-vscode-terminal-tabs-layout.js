@@ -11,9 +11,10 @@ const patchMarker =
 const patchRules = [
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row{height:68px!important;line-height:20px!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry{min-height:68px!important;height:68px!important;align-items:center!important;padding-top:5px!important;padding-bottom:5px!important;padding-left:12px!important;padding-right:10px!important;box-sizing:border-box!important;}',
-  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;}',
-  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;position:relative!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;padding-left:38px!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-name-container,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-description-container{white-space:normal!important;overflow:hidden!important;text-overflow:clip!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label .codicon:first-child{position:absolute!important;left:0!important;top:50%!important;transform:translateY(-50%)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
 ];
 const patchBlock = `${patchMarker}\n${patchRules.join('\n')}\n`;
@@ -49,11 +50,20 @@ const legacy68TopAlignedPatchRules = [
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-name-container,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-description-container{white-space:normal!important;overflow:hidden!important;text-overflow:clip!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
 ];
+const legacy68CenteredPatchRules = [
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row{height:68px!important;line-height:20px!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry{min-height:68px!important;height:68px!important;align-items:center!important;padding-top:5px!important;padding-bottom:5px!important;padding-left:12px!important;padding-right:10px!important;box-sizing:border-box!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-name-container,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-description-container{white-space:normal!important;overflow:hidden!important;text-overflow:clip!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
+];
 const legacyPatchBlocks = [
   `${patchMarker}\n${legacy44PatchRules.join('\n')}\n`,
   `${patchMarker}\n${legacy48PatchRules.join('\n')}\n`,
   `${patchMarker}\n${legacy64PatchRules.join('\n')}\n`,
   `${patchMarker}\n${legacy68TopAlignedPatchRules.join('\n')}\n`,
+  `${patchMarker}\n${legacy68CenteredPatchRules.join('\n')}\n`,
 ];
 
 function timestamp() {
@@ -78,9 +88,13 @@ if (source.includes(patchMarker)) {
   }
 
   if (
-    ![legacy44PatchRules, legacy48PatchRules, legacy64PatchRules, legacy68TopAlignedPatchRules].some((rules) =>
-      rules.every((rule) => source.includes(rule)),
-    )
+    ![
+      legacy44PatchRules,
+      legacy48PatchRules,
+      legacy64PatchRules,
+      legacy68TopAlignedPatchRules,
+      legacy68CenteredPatchRules,
+    ].some((rules) => rules.every((rule) => source.includes(rule)))
   ) {
     fail('Found an unknown terminal tabs layout patch marker. Re-check workbench CSS before patching.');
   }

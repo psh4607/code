@@ -851,8 +851,9 @@ test('checkVscodeTerminalTabsLayoutPatch reports whether terminal tabs use multi
     [
       '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry{text-align:center}',
       '/* codex-vscode-terminal-tools: terminal-tabs-two-line-layout. Reapply with patch-vscode-terminal-tabs-layout. */',
-      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;}',
-      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;}',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;position:relative!important;}',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;padding-left:38px!important;}',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label .codicon:first-child{position:absolute!important;left:0!important;top:50%!important;transform:translateY(-50%)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;}',
       '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
       '',
     ].join('\n'),
