@@ -49,9 +49,42 @@ function truncateText(value, maxLength = 72) {
   return `${text.slice(0, maxLength - 1).trimEnd()}...`;
 }
 
+function stripMarkdownForNotification(value) {
+  return String(value ?? '')
+    .replace(/!\[([^\]\r\n]*)\]\(([^)\r\n]+)\)/g, (_, label, target) =>
+      label ? `${label} (${target.trim()})` : target.trim(),
+    )
+    .replace(/\[([^\]\r\n]{1,160})\]\(([^)\r\n]+)\)/g, (_, label, target) =>
+      `${label.trim()} (${target.trim()})`,
+    )
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/(^|\s)[>*-]\s+(?=\S)/g, '$1');
+}
+
+function summarizeCompletedDetail(value) {
+  return truncateText(stripMarkdownForNotification(value), 220);
+}
+
+function stripTranscriptAttachmentWrappers(value) {
+  return String(value ?? '').replace(/<\/?(?:image|file)\b[^>]*>/gi, ' ');
+}
+
+function stripPromptAttachmentReferences(value) {
+  return String(value ?? '').replace(/^\s*(?:\[[^\]\r\n]{1,40}\]\s*)+/g, '');
+}
+
+function textFromContentValue(value) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  return cleanText(stripTranscriptAttachmentWrappers(value));
+}
+
 function textFromContent(content) {
   if (typeof content === 'string') {
-    return cleanText(content);
+    return textFromContentValue(content);
   }
   if (!Array.isArray(content)) {
     return undefined;
@@ -59,7 +92,8 @@ function textFromContent(content) {
   return cleanText(
     content
       .map((item) => item?.text ?? item?.input_text ?? item?.output_text)
-      .filter((value) => typeof value === 'string' && value.trim())
+      .map(textFromContentValue)
+      .filter(Boolean)
       .join(' '),
   );
 }
@@ -69,7 +103,7 @@ function turnIdFromTranscriptPayload(payload) {
 }
 
 function summarizeUserPrompt(value) {
-  const text = cleanText(value);
+  const text = cleanText(stripPromptAttachmentReferences(value));
   if (!text) {
     return undefined;
   }
@@ -87,9 +121,11 @@ function summarizeUserPrompt(value) {
   }
 
   return truncateText(
-    text
-      .replace(/^(?:음|좋아|자|그럼|오케이|ㅇㅋ|ok|okay)[\s,.!…-]*/i, '')
-      .replace(/\s*(?:해줘|해주세요|ㄱㄱ)\s*$/i, ''),
+    stripPromptAttachmentReferences(
+      text
+        .replace(/^(?:음|좋아|자|그럼|오케이|ㅇㅋ|ok|okay)[\s,.!…-]*/i, '')
+        .replace(/\s*(?:해줘|해주세요|ㄱㄱ)\s*$/i, ''),
+    ),
   );
 }
 
@@ -129,21 +165,72 @@ function readTranscriptUserPrompt(transcriptPath, turnId) {
   return prompt;
 }
 
+function readTranscriptAssistantFinal(transcriptPath, turnId) {
+  if (!transcriptPath || !turnId) {
+    return undefined;
+  }
+
+  let source;
+  try {
+    source = fs.readFileSync(transcriptPath, 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  let finalMessage;
+  let taskCompleteMessage;
+  for (const line of source.split('\n')) {
+    if (!line.trim()) {
+      continue;
+    }
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    const payload = record?.payload;
+    if (
+      record?.type === 'response_item' &&
+      payload?.type === 'message' &&
+      payload?.role === 'assistant' &&
+      payload?.phase === 'final_answer' &&
+      turnIdFromTranscriptPayload(payload) === turnId
+    ) {
+      finalMessage = textFromContent(payload.content);
+    }
+
+    if (
+      record?.type === 'event_msg' &&
+      payload?.type === 'task_complete' &&
+      payload?.turn_id === turnId
+    ) {
+      taskCompleteMessage = cleanText(payload.last_agent_message);
+    }
+  }
+
+  return finalMessage ?? taskCompleteMessage;
+}
+
 function enrichCompletedEvent(event) {
   if (event?.event !== 'turn_finished') {
     return event;
   }
 
-  const summary = summarizeUserPrompt(
-    readTranscriptUserPrompt(event.source?.transcriptPath, event.turnId),
+  const prompt = readTranscriptUserPrompt(event.source?.transcriptPath, event.turnId);
+  const summary = summarizeUserPrompt(prompt);
+  const detail = summarizeCompletedDetail(
+    readTranscriptAssistantFinal(event.source?.transcriptPath, event.turnId),
   );
-  if (!summary) {
+  if (!summary && !detail) {
     return event;
   }
 
   return {
     ...event,
-    title: summary,
+    ...(summary ? { title: summary } : {}),
+    ...(detail ? { body: detail } : {}),
   };
 }
 

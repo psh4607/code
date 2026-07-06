@@ -75,6 +75,29 @@ test('Stop hook uses the matching transcript user prompt as the completed notifi
         },
       },
     }),
+    JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        phase: 'final_answer',
+        content: [
+          {
+            type: 'output_text',
+            text: [
+              '알림 문구 개선 반영했습니다.',
+              '',
+              '검증:',
+              '`npm test` 통과',
+              '`npm run doctor` 전체 ok',
+            ].join('\n'),
+          },
+        ],
+        internal_chat_message_metadata_passthrough: {
+          turn_id: turnId,
+        },
+      },
+    }),
     '',
   ].join('\n'));
 
@@ -97,7 +120,137 @@ test('Stop hook uses the matching transcript user prompt as the completed notifi
   const [event] = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(event.event, 'turn_finished');
   assert.equal(event.title, '알림 문구 개선');
-  assert.equal(event.body, undefined);
+  assert.equal(
+    event.body,
+    '알림 문구 개선 반영했습니다. 검증: npm test 통과 npm run doctor 전체 ok',
+  );
+});
+
+test('Stop hook ignores attachment wrapper text when summarizing the completed title', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-notification-hook-test-'));
+  const eventsPath = path.join(tmpDir, 'events.jsonl');
+  const transcriptPath = path.join(tmpDir, 'transcript.jsonl');
+  const turnId = '019f3766-178f-78f1-9d1a-986d5707d7f1';
+
+  fs.writeFileSync(transcriptPath, [
+    JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: '<image name=[Image #1] path="/var/folders/wd/gkvk8y2s1gz59d1q6ws2mggm0000gn/T/codex-clipboard-Tqn4NW.png">',
+          },
+          {
+            type: 'input_image',
+            image_url: 'data:image/png;base64,iVBORw0KGgo=',
+            detail: 'high',
+          },
+          {
+            type: 'input_text',
+            text: '</image>',
+          },
+          {
+            type: 'input_text',
+            text: '[Image #1] 경로가 좀 worktree라 지저분한테? 좋은 방법 제시해서 적용 ㄱㄱ',
+          },
+        ],
+        internal_chat_message_metadata_passthrough: {
+          turn_id: turnId,
+        },
+      },
+    }),
+    '',
+  ].join('\n'));
+
+  const result = runHook(
+    {
+      hook_event_name: 'Stop',
+      session_id: '019f3640-3432-7612-9c11-9902ef1b7245',
+      cwd: '/tmp/codex-vscode-terminal-tools',
+      transcript_path: transcriptPath,
+      turn_id: turnId,
+    },
+    {
+      CODEX_AGENT_NOTIFICATION_EVENTS_PATH: eventsPath,
+      CODEX_AGENT_NOTIFICATION_NOW_MS: '3000',
+    },
+  );
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, '{}');
+  const [event] = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(event.event, 'turn_finished');
+  assert.equal(event.title, '경로가 좀 worktree라 지저분한테? 좋은 방법 제시해서 적용');
+});
+
+test('Stop hook converts markdown links in the completed body to plain text', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-notification-hook-test-'));
+  const eventsPath = path.join(tmpDir, 'events.jsonl');
+  const transcriptPath = path.join(tmpDir, 'transcript.jsonl');
+  const turnId = '019f3785-b4e4-7890-a891-aebc4ec7b570';
+
+  fs.writeFileSync(transcriptPath, [
+    JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'ㅋㅋ 만들자' }],
+        internal_chat_message_metadata_passthrough: {
+          turn_id: turnId,
+        },
+      },
+    }),
+    JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        phase: 'final_answer',
+        content: [
+          {
+            type: 'output_text',
+            text: [
+              '만들어뒀습니다.',
+              '생성 위치:',
+              '- [SKILL.md](/Users/seongho/.codex/skills/codegraph/SKILL.md:1)',
+              '- [agents/openai.yaml](/Users/seongho/.codex/skills/codegraph/agents/openai.yaml:1)',
+            ].join('\n'),
+          },
+        ],
+        internal_chat_message_metadata_passthrough: {
+          turn_id: turnId,
+        },
+      },
+    }),
+    '',
+  ].join('\n'));
+
+  const result = runHook(
+    {
+      hook_event_name: 'Stop',
+      session_id: '019f3640-3432-7612-9c11-9902ef1b7245',
+      cwd: '/tmp/codex-vscode-terminal-tools',
+      transcript_path: transcriptPath,
+      turn_id: turnId,
+    },
+    {
+      CODEX_AGENT_NOTIFICATION_EVENTS_PATH: eventsPath,
+      CODEX_AGENT_NOTIFICATION_NOW_MS: '3000',
+    },
+  );
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, '{}');
+  const [event] = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(event.event, 'turn_finished');
+  assert.equal(
+    event.body,
+    '만들어뒀습니다. 생성 위치: SKILL.md (/Users/seongho/.codex/skills/codegraph/SKILL.md:1) agents/openai.yaml (/Users/seongho/.codex/skills/codegraph/agents/openai.yaml:1)',
+  );
 });
 
 test('Codex notification hook ignores malformed stdin without failing', () => {
