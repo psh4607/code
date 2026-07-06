@@ -1,6 +1,8 @@
 const fs = require('node:fs');
+const childProcess = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
+const { clipboardInfoHasImage } = require('./smartPasteCommand');
 const {
   checkManagedCodeApp: checkManagedCodeAppStatus,
   createManagedCodeAppPaths,
@@ -1121,6 +1123,114 @@ function checkVscodeDockIconPatch({ mainPath, pngSourcePath, pngTargetPath }) {
   };
 }
 
+function defaultSmartPasteSmokeImagePath({ now = Date.now, tmpdir = os.tmpdir } = {}) {
+  const timestamp = new Date(now()).toISOString().replace(/[:.]/g, '-');
+  return path.join(
+    tmpdir(),
+    'codex-vscode-terminal-tools',
+    `doctor-clipboard-image-${timestamp}-${process.pid}.png`,
+  );
+}
+
+function checkSmartPasteImageClipboard({
+  platform = process.platform,
+  execFileSync = childProcess.execFileSync,
+  now = Date.now,
+  tmpdir = os.tmpdir,
+} = {}) {
+  if (platform !== 'darwin') {
+    return { ok: true, detail: 'not macOS; image export smoke skipped' };
+  }
+
+  let clipboardInfo;
+  try {
+    clipboardInfo = String(
+      execFileSync('osascript', ['-e', 'clipboard info'], {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+        timeout: 1000,
+      }),
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      detail: `clipboard info failed: ${error.message}`,
+    };
+  }
+
+  if (!clipboardInfoHasImage(clipboardInfo)) {
+    return {
+      ok: true,
+      detail: 'clipboard has no image; image export smoke skipped',
+    };
+  }
+
+  const imagePath = defaultSmartPasteSmokeImagePath({ now, tmpdir });
+  try {
+    fs.mkdirSync(path.dirname(imagePath), { recursive: true });
+    execFileSync(
+      'osascript',
+      [
+        '-e',
+        'set outputPath to POSIX file (system attribute "CODEX_VSCODE_CLIPBOARD_IMAGE_PATH")',
+        '-e',
+        'try',
+        '-e',
+        'set pngData to the clipboard as «class PNGf»',
+        '-e',
+        'set fileRef to open for access outputPath with write permission',
+        '-e',
+        'set eof fileRef to 0',
+        '-e',
+        'write pngData to fileRef',
+        '-e',
+        'close access fileRef',
+        '-e',
+        'on error errMsg number errNum',
+        '-e',
+        'try',
+        '-e',
+        'close access outputPath',
+        '-e',
+        'end try',
+        '-e',
+        'error errMsg number errNum',
+        '-e',
+        'end try',
+      ],
+      {
+        env: {
+          ...process.env,
+          CODEX_VSCODE_CLIPBOARD_IMAGE_PATH: imagePath,
+        },
+        maxBuffer: 1024 * 1024,
+        timeout: 1000,
+      },
+    );
+
+    const size = fs.statSync(imagePath).size;
+    fs.rmSync(imagePath, { force: true });
+
+    if (size <= 0) {
+      return {
+        ok: false,
+        detail: 'image clipboard export failed: temp PNG is empty',
+      };
+    }
+
+    return {
+      ok: true,
+      detail: `image clipboard exports to temp PNG (${size} bytes)`,
+    };
+  } catch (error) {
+    fs.rmSync(imagePath, { force: true });
+    return {
+      ok: false,
+      detail: `image clipboard export failed: ${error.message}`,
+    };
+  }
+}
+
 function status(id, ok, detail) {
   return { id, ok, detail };
 }
@@ -1136,6 +1246,8 @@ function checkHostConfig({
   checkOpaqueOverlays = true,
   checkTitlebarCenter = true,
   checkTerminalTabsLayout = true,
+  checkSmartPaste = true,
+  checkSmartPasteImageClipboard: smartPasteImageClipboardCheck = checkSmartPasteImageClipboard,
 } = {}) {
   const settings = fs.existsSync(paths.userSettingsPath)
     ? readJsoncFile(paths.userSettingsPath, {})
@@ -1275,6 +1387,11 @@ function checkHostConfig({
     );
   }
 
+  if (checkSmartPaste) {
+    const smartPaste = smartPasteImageClipboardCheck();
+    statuses.push(status('smartPaste', smartPaste.ok, smartPaste.detail));
+  }
+
   return statuses;
 }
 
@@ -1290,6 +1407,7 @@ module.exports = {
   checkVscodeTerminalTabsLayoutPatch,
   checkVscodeTitlebarCenterPatch,
   checkVscodeWatermarkPatch,
+  checkSmartPasteImageClipboard,
   checkWorkbenchPatches,
   createDefaultPaths,
   ensureExtensionLink,

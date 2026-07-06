@@ -11,6 +11,7 @@ const {
   checkVscodeTerminalTabsLayoutPatch,
   checkVscodeTitlebarCenterPatch,
   checkVscodeWatermarkPatch,
+  checkSmartPasteImageClipboard,
   checkWorkbenchPatches,
   checkHostConfig,
   createDefaultPaths,
@@ -559,6 +560,10 @@ test('checkHostConfig reports managed files as ok', () => {
     checkOpaqueOverlays: false,
     checkTitlebarCenter: false,
     checkTerminalTabsLayout: false,
+    checkSmartPasteImageClipboard: () => ({
+      ok: true,
+      detail: 'clipboard has no image; image export smoke skipped',
+    }),
   });
 
   assert.deepEqual(
@@ -572,6 +577,7 @@ test('checkHostConfig reports managed files as ok', () => {
       extension: true,
       wrapper: true,
       imeWrapper: true,
+      smartPaste: true,
     },
   );
 });
@@ -610,6 +616,7 @@ test('checkHostConfig includes managed and upstream bundle patch statuses', () =
     paths,
     checkManagedCodeApp: false,
     checkClaude: false,
+    checkSmartPaste: false,
   });
   const byId = Object.fromEntries(statuses.map((status) => [status.id, status]));
 
@@ -631,6 +638,90 @@ test('checkHostConfig includes managed and upstream bundle patch statuses', () =
   ]) {
     assert.equal(byId[id].ok, false, id);
   }
+});
+
+test('checkHostConfig includes smart paste image clipboard status', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
+  const paths = {
+    home: path.join(tmpDir, 'home'),
+    projectRoot: path.join(tmpDir, 'project'),
+    userSettingsPath: path.join(tmpDir, 'settings.json'),
+    userKeybindingsPath: path.join(tmpDir, 'keybindings.json'),
+    zshrcPath: path.join(tmpDir, '.zshrc'),
+    codexConfigPath: path.join(tmpDir, 'config.toml'),
+    codexHooksPath: path.join(tmpDir, 'hooks.json'),
+    extensionPath: path.join(tmpDir, 'extension'),
+    wrapperPath: path.join(tmpDir, 'patch-vscode-terminal-order'),
+    imeWrapperPath: path.join(tmpDir, 'patch-vscode-ime-guard'),
+    workbenchPath: path.join(tmpDir, 'managed-workbench.js'),
+    sourceWorkbenchPath: path.join(tmpDir, 'upstream-workbench.js'),
+    workbenchCssPath: path.join(tmpDir, 'managed-workbench.css'),
+    sourceWorkbenchCssPath: path.join(tmpDir, 'upstream-workbench.css'),
+    mainPath: path.join(tmpDir, 'managed-main.js'),
+    sourceMainPath: path.join(tmpDir, 'upstream-main.js'),
+    vscodeIconSourcePath: path.join(tmpDir, 'warp-glass-sky.icns'),
+    vscodeIconPath: path.join(tmpDir, 'managed-Code.icns'),
+    sourceVscodeIconPath: path.join(tmpDir, 'upstream-Code.icns'),
+    vscodeIconPngSourcePath: path.join(tmpDir, 'warp-glass-sky.png'),
+    vscodeDockIconPngPath: path.join(tmpDir, 'managed-dock-icon.png'),
+    sourceVscodeDockIconPngPath: path.join(tmpDir, 'upstream-dock-icon.png'),
+    vscodeAppPath: path.join(tmpDir, 'Code.app'),
+    vscodeSourceAppPath: path.join(tmpDir, 'Visual Studio Code.app'),
+    claudeExtensionsDir: path.join(tmpDir, 'claude'),
+  };
+
+  const statuses = checkHostConfig({
+    paths,
+    checkManagedCodeApp: false,
+    checkWorkbench: false,
+    checkClaude: false,
+    checkVscodeIcon: false,
+    checkDockIcon: false,
+    checkWatermark: false,
+    checkOpaqueOverlays: false,
+    checkTitlebarCenter: false,
+    checkTerminalTabsLayout: false,
+    checkSmartPaste: true,
+    checkSmartPasteImageClipboard: () => ({
+      ok: true,
+      detail: 'image clipboard exports to temp PNG',
+    }),
+  });
+
+  assert.deepEqual(statuses.at(-1), {
+    id: 'smartPaste',
+    ok: true,
+    detail: 'image clipboard exports to temp PNG',
+  });
+});
+
+test('checkSmartPasteImageClipboard fails when detected image export fails', () => {
+  const result = checkSmartPasteImageClipboard({
+    platform: 'darwin',
+    execFileSync(command, args) {
+      if (command === 'osascript' && args.at(-1) === 'clipboard info') {
+        return '«class PNGf», 1234';
+      }
+      throw new Error('png export failed');
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.detail, /image clipboard export failed: png export failed/);
+});
+
+test('checkSmartPasteImageClipboard skips cleanly when clipboard has no image', () => {
+  const result = checkSmartPasteImageClipboard({
+    platform: 'darwin',
+    execFileSync() {
+      return 'utf8, 12';
+    },
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    detail: 'clipboard has no image; image export smoke skipped',
+  });
 });
 
 test('checkWorkbenchPatches requires the IME terminal sendSequence hooks', () => {

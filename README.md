@@ -297,6 +297,10 @@ If the clipboard contains an image flavor such as PNG, TIFF, JPEG, GIF, or HEIC,
 This avoids VS Code's terminal paste command for bitmap clips because the command reads text and file resources, not raw image clipboard flavors.
 Otherwise it delegates to VS Code's normal `workbench.action.terminal.paste`, so text paste stays unchanged.
 
+`npm run doctor` also reports `smartPaste`. When the current macOS clipboard contains an image
+flavor, it writes that image to a temporary PNG as a smoke test; when the clipboard has no image, it
+skips the export check cleanly.
+
 ## Cwd-Based Terminal Tab Color
 
 The extension watches shell integration cwd changes for the active terminal and updates the terminal tab color.
