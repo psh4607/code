@@ -436,6 +436,30 @@ test('manager restores unread records from global state without replaying seen e
   assert.equal(fake.informationMessages.length, 0);
 });
 
+test('manager does not replay read records when seen event ids are missing after reload', async () => {
+  const storedRecord = {
+    ...event({ id: 'stored-event' }),
+    isRead: true,
+    isPresented: false,
+  };
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
+  fake.globalStateValues.set('codexTerminal.agentNotifications.records', [storedRecord]);
+
+  const manager = createAgentNotificationManager(fake.vscode, {
+    context: fake.context,
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event({ id: 'replayed-event' }))}\n`,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.equal(fake.informationMessages.length, 0);
+  assert.equal(fake.statusBarItems[0].visible, false);
+  assert.equal(manager._store.unreadCount(), 0);
+});
+
 test('manager persists records and seen event ids as notifications change', async () => {
   const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const manager = createAgentNotificationManager(fake.vscode, {

@@ -41,6 +41,29 @@ test('store dedupes by dedupeKey and keeps the newest record', () => {
   assert.equal(store.records()[0].body, 'second');
 });
 
+test('store preserves read state when a dedupeKey is replayed', () => {
+  const store = createAgentNotificationStore({
+    initialRecords: [
+      {
+        ...event({ id: 'stored', createdAt: 1000 }),
+        isRead: true,
+        isPresented: false,
+      },
+    ],
+  });
+
+  const result = store.ingestEvent(event({ id: 'replayed', createdAt: 2000 }));
+
+  assert.equal(result.shouldPresent, false);
+  assert.equal(result.record.isRead, true);
+  assert.equal(result.record.isPresented, false);
+  assert.equal(store.unreadCount(), 0);
+  assert.deepEqual(
+    store.records().map((record) => [record.id, record.isRead, record.isPresented]),
+    [['replayed', true, false]],
+  );
+});
+
 test('prompt_submitted marks waiting records for the same session read without adding a record', () => {
   const store = createAgentNotificationStore();
 

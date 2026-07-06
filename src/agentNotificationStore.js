@@ -82,12 +82,15 @@ function createAgentNotificationStore({ maxRecords = DEFAULT_MAX_RECORDS, initia
       return { record: undefined, shouldPresent: false, changed: false };
     }
 
+    const existingRecord = records.find((record) => record.dedupeKey === event.dedupeKey);
     const shouldSuppressPresentation = Boolean(context.isActiveTerminalFocused);
-    const wasPresented = presentedDedupeKeys.has(event.dedupeKey);
+    const wasPresented = presentedDedupeKeys.has(event.dedupeKey) || Boolean(existingRecord?.isPresented);
+    const isRead = shouldSuppressPresentation || Boolean(existingRecord?.isRead);
+    const shouldPresent = !isRead && !wasPresented;
     const record = {
       ...cloneRecord(event),
-      isRead: shouldSuppressPresentation,
-      isPresented: !shouldSuppressPresentation && !wasPresented,
+      isRead,
+      isPresented: wasPresented || shouldPresent,
     };
 
     replaceRecords([
@@ -95,8 +98,7 @@ function createAgentNotificationStore({ maxRecords = DEFAULT_MAX_RECORDS, initia
       ...records.filter((existing) => existing.dedupeKey !== event.dedupeKey),
     ]);
 
-    const shouldPresent = !record.isRead && !wasPresented;
-    if (shouldPresent) {
+    if (record.isPresented) {
       presentedDedupeKeys.add(event.dedupeKey);
     }
 
