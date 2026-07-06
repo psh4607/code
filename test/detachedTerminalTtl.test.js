@@ -6,6 +6,8 @@ const {
   createDetachedTerminalQuickPickItems,
 } = require('../src/detachedTerminalTtl');
 
+const SESSION_ID_A = '019f2643-b7b8-76b2-baed-9faae1f809fd';
+
 function createMemoryStorage(initialRecords = []) {
   let records = initialRecords;
   return {
@@ -23,12 +25,14 @@ function createMemoryStorage(initialRecords = []) {
 
 function createFakeVscode({ activeTerminal, quickPickIndex } = {}) {
   const executedCommands = [];
+  const createdTerminals = [];
   const quickPickCalls = [];
   const warnings = [];
   const information = [];
   const openedListeners = [];
 
   return {
+    createdTerminals,
     executedCommands,
     information,
     quickPickCalls,
@@ -42,6 +46,21 @@ function createFakeVscode({ activeTerminal, quickPickIndex } = {}) {
       },
       window: {
         activeTerminal,
+        createTerminal(options) {
+          const terminal = {
+            options,
+            sentText: [],
+            shown: [],
+            sendText(text, shouldExecute) {
+              this.sentText.push([text, shouldExecute]);
+            },
+            show(preserveFocus) {
+              this.shown.push(preserveFocus);
+            },
+          };
+          createdTerminals.push(terminal);
+          return terminal;
+        },
         onDidOpenTerminal(listener) {
           openedListeners.push(listener);
           return {
@@ -75,6 +94,15 @@ function terminalWithPid(pid, title = 'zsh') {
   return {
     name: title,
     processId: Promise.resolve(pid),
+  };
+}
+
+function terminalWithPidAndCwd(pid, cwd, title = 'zsh') {
+  return {
+    ...terminalWithPid(pid, title),
+    shellIntegration: {
+      cwd: { fsPath: cwd },
+    },
   };
 }
 
@@ -120,6 +148,39 @@ test('detach command records the active terminal pid with a one hour expiry', as
     },
   ]);
   assert.deepEqual(fake.warnings, []);
+});
+
+test('detach command records Codex session metadata from the session registry', async () => {
+  const storage = createMemoryStorage();
+  const activeTerminal = terminalWithPidAndCwd(1234, '/tmp/project', 'work');
+  const fake = createFakeVscode({ activeTerminal });
+  const manager = createDetachedTerminalTtlManager(fake.vscode, {
+    storage,
+    now: () => 1000,
+    startTimers: false,
+    async loadSessionRegistryRecords() {
+      return [
+        {
+          sessionId: SESSION_ID_A,
+          cwd: '/tmp/project',
+          terminalPid: 1234,
+        },
+      ];
+    },
+  });
+
+  await manager.detachActiveTerminal();
+
+  assert.deepEqual(storage.snapshot(), [
+    {
+      pid: 1234,
+      detachedAt: 1000,
+      expiresAt: 3601000,
+      title: 'work',
+      sessionId: SESSION_ID_A,
+      cwd: '/tmp/project',
+    },
+  ]);
 });
 
 test('attach command marks the reattached terminal pid in the ttl registry', async () => {
@@ -321,6 +382,70 @@ test('attach command shows dead tracked sessions as unavailable history', async 
   );
   assert.deepEqual(fake.information, []);
   assert.deepEqual(fake.executedCommands, []);
+});
+
+test('quick pick marks dead detached Codex sessions as resumable', () => {
+  const items = createDetachedTerminalQuickPickItems(
+    [
+      {
+        pid: 1111,
+        detachedAt: 1000,
+        expiresAt: 600000,
+        title: 'dead',
+        terminatedAt: 100000,
+        terminationReason: 'dead',
+        sessionId: SESSION_ID_A,
+        cwd: '/tmp/project',
+      },
+    ],
+    {
+      now: 100000,
+      canResumeCodexSession() {
+        return true;
+      },
+    },
+  );
+
+  assert.equal(items[0].description, '프로세스 종료됨 · Codex 세션 복원 가능');
+  assert.equal(items[0].canAttach, false);
+  assert.equal(items[0].canResumeCodexSession, true);
+});
+
+test('attach command resumes a dead detached Codex session immediately', async () => {
+  const storage = createMemoryStorage([
+    {
+      pid: 1111,
+      detachedAt: 1000,
+      expiresAt: 600000,
+      title: 'dead',
+      terminatedAt: 100000,
+      terminationReason: 'dead',
+      sessionId: SESSION_ID_A,
+      cwd: '/tmp/project',
+    },
+  ]);
+  const fake = createFakeVscode({ quickPickIndex: 0 });
+  const manager = createDetachedTerminalTtlManager(fake.vscode, {
+    storage,
+    now: () => 200000,
+    startTimers: false,
+    async hasSavedCodexSession(sessionId) {
+      return sessionId === SESSION_ID_A;
+    },
+  });
+
+  await manager.attachDetachedTerminal();
+
+  assert.equal(fake.information.length, 0);
+  assert.deepEqual(fake.createdTerminals[0].options, {
+    cwd: '/tmp/project',
+    name: 'dead',
+  });
+  assert.deepEqual(fake.createdTerminals[0].shown, [false]);
+  assert.deepEqual(fake.createdTerminals[0].sentText, [
+    [`codex resume ${SESSION_ID_A}`, true],
+  ]);
+  assert.equal(storage.snapshot()[0].codexResumedAt, 200000);
 });
 
 test('createDetachedTerminalQuickPickItems formats ttl expiry and remaining time', () => {

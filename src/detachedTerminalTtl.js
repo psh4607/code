@@ -1,4 +1,9 @@
 const { execFile } = require('node:child_process');
+const {
+  createDefaultHasSavedSession,
+  createDefaultLoadSessionRegistryRecords,
+  extractCodexSessionId,
+} = require('./codexSessionResume');
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_HISTORY_RETENTION_MS = 6 * 60 * 60 * 1000;
@@ -42,6 +47,14 @@ async function getTerminalPid(terminal) {
   return normalizePid(pid);
 }
 
+function normalizeCwd(value) {
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+function getTerminalCwd(terminal) {
+  return normalizeCwd(terminal?.shellIntegration?.cwd?.fsPath);
+}
+
 function normalizeRecords(records) {
   const unique = new Map();
 
@@ -60,11 +73,26 @@ function normalizeRecords(records) {
       expiresAt,
       title: typeof record.title === 'string' ? record.title : '',
     };
+    const sessionId = extractCodexSessionId(record.sessionId);
+    const cwd = normalizeCwd(record.cwd);
     const reattachedAt = normalizeTimestamp(record.reattachedAt);
     const terminatedAt = normalizeTimestamp(record.terminatedAt);
+    const codexResumedAt = normalizeTimestamp(record.codexResumedAt);
+
+    if (sessionId) {
+      normalizedRecord.sessionId = sessionId;
+    }
+
+    if (cwd) {
+      normalizedRecord.cwd = cwd;
+    }
 
     if (reattachedAt !== undefined) {
       normalizedRecord.reattachedAt = reattachedAt;
+    }
+
+    if (codexResumedAt !== undefined) {
+      normalizedRecord.codexResumedAt = codexResumedAt;
     }
 
     if (terminatedAt !== undefined) {
@@ -110,6 +138,7 @@ function markReattached(record, reattachedAt) {
   };
   delete nextRecord.terminatedAt;
   delete nextRecord.terminationReason;
+  delete nextRecord.codexResumedAt;
   return nextRecord;
 }
 
@@ -125,7 +154,14 @@ function markTerminated(record, terminatedAt, terminationReason) {
   };
 }
 
-function createUnavailableItem(record, { detail, reason }) {
+function markCodexResumed(record, codexResumedAt) {
+  return {
+    ...record,
+    codexResumedAt,
+  };
+}
+
+function createUnavailableItem(record, { detail, reason, canResumeCodexSession = false }) {
   return {
     label: `${record.title || 'Terminal'} ${record.pid}`,
     detail,
@@ -133,6 +169,7 @@ function createUnavailableItem(record, { detail, reason }) {
     pid: record.pid,
     record,
     canAttach: false,
+    canResumeCodexSession,
     unavailableReason: reason,
     alwaysShow: true,
   };
@@ -145,6 +182,7 @@ function createDetachedTerminalQuickPickItems(
     formatTime,
     historyRetentionMs = DEFAULT_HISTORY_RETENTION_MS,
     isAlive,
+    canResumeCodexSession,
   } = {},
 ) {
   const currentTime = Number(now);
@@ -164,6 +202,13 @@ function createDetachedTerminalQuickPickItems(
         });
       }
 
+      if (record.codexResumedAt !== undefined) {
+        return createUnavailableItem(record, {
+          detail: `Codex 세션 복구됨 ${formatExpiryTime(record.codexResumedAt)} | ${historyDetail}`,
+          reason: 'Codex 세션 복구됨',
+        });
+      }
+
       if (record.expiresAt <= currentTime) {
         return createUnavailableItem(record, {
           detail: `TTL ${formatExpiryTime(record.expiresAt)}에 만료됨 | ${historyDetail}`,
@@ -173,9 +218,18 @@ function createDetachedTerminalQuickPickItems(
 
       const alive = isAlive ? isAlive(record) : record.terminatedAt === undefined;
       if (!alive || record.terminatedAt !== undefined) {
+        const canResume = Boolean(
+          record.sessionId &&
+            record.cwd &&
+            canResumeCodexSession &&
+            canResumeCodexSession(record),
+        );
         return createUnavailableItem(record, {
           detail: `마지막 TTL ${formatExpiryTime(record.expiresAt)}까지 | ${historyDetail}`,
-          reason: '프로세스 종료됨',
+          reason: canResume
+            ? '프로세스 종료됨 · Codex 세션 복원 가능'
+            : '프로세스 종료됨',
+          canResumeCodexSession: canResume,
         });
       }
 
@@ -295,6 +349,14 @@ function createDefaultKillTree({
   };
 }
 
+function findSessionRegistryRecordForDetachedTerminal(registryRecords, pid, cwd) {
+  return registryRecords.find(
+    (record) =>
+      record.terminalPid === pid &&
+      (!record.cwd || !cwd || record.cwd === cwd),
+  );
+}
+
 function createDetachedTerminalTtlManager(vscode, options = {}) {
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
   const historyRetentionMs = options.historyRetentionMs ?? DEFAULT_HISTORY_RETENTION_MS;
@@ -307,6 +369,10 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
   const clearIntervalFn = options.clearInterval ?? clearInterval;
   const startTimers = options.startTimers ?? true;
   const log = options.log ?? console;
+  const loadSessionRegistryRecords =
+    options.loadSessionRegistryRecords ?? createDefaultLoadSessionRegistryRecords();
+  const hasSavedCodexSession =
+    options.hasSavedCodexSession ?? createDefaultHasSavedSession();
   const killTree =
     options.killTree ??
     createDefaultKillTree({
@@ -327,14 +393,43 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
     await storage.setRecords(normalizeRecords(records));
   }
 
+  async function getDetachedCodexSessionMetadata(terminal, pid) {
+    const cwd = getTerminalCwd(terminal);
+    const titleSessionId = extractCodexSessionId(terminal?.name);
+    let registryRecord;
+
+    try {
+      registryRecord = findSessionRegistryRecordForDetachedTerminal(
+        await loadSessionRegistryRecords(),
+        pid,
+        cwd,
+      );
+    } catch (error) {
+      log.warn?.('Failed to read Codex session registry for detached terminal', error);
+    }
+
+    const sessionId = registryRecord?.sessionId ?? titleSessionId;
+    const sessionCwd = registryRecord?.cwd ?? cwd;
+    if (!sessionId && !sessionCwd) {
+      return {};
+    }
+
+    return {
+      ...(sessionId ? { sessionId } : {}),
+      ...(sessionCwd ? { cwd: sessionCwd } : {}),
+    };
+  }
+
   async function recordDetachedTerminal(terminal, pid) {
     const detachedAt = now();
     const records = (await readRecords()).filter((record) => record.pid !== pid);
+    const codexSessionMetadata = await getDetachedCodexSessionMetadata(terminal, pid);
     records.push({
       pid,
       detachedAt,
       expiresAt: detachedAt + ttlMs,
       title: typeof terminal.name === 'string' ? terminal.name : '',
+      ...codexSessionMetadata,
     });
     await writeRecords(records);
   }
@@ -375,6 +470,59 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
     );
   }
 
+  async function markPidCodexResumed(pid) {
+    const normalizedPid = normalizePid(pid);
+    if (!normalizedPid) {
+      return;
+    }
+
+    const codexResumedAt = now();
+    await writeRecords(
+      (await readRecords()).map((record) =>
+        record.pid === normalizedPid ? markCodexResumed(record, codexResumedAt) : record,
+      ),
+    );
+  }
+
+  async function canResumeCodexRecord(record) {
+    if (!record?.sessionId || !record.cwd) {
+      return false;
+    }
+
+    try {
+      return Boolean(await hasSavedCodexSession(record.sessionId));
+    } catch (error) {
+      log.warn?.(`Failed to check saved Codex session ${record.sessionId}`, error);
+      return false;
+    }
+  }
+
+  async function createCodexResumableSessionSet(records) {
+    const resumableSessionIds = new Set();
+    for (const record of records) {
+      if (await canResumeCodexRecord(record)) {
+        resumableSessionIds.add(record.sessionId);
+      }
+    }
+    return resumableSessionIds;
+  }
+
+  async function resumeCodexSessionFromRecord(record) {
+    if (!(await canResumeCodexRecord(record))) {
+      vscode.window.showInformationMessage?.('프로세스 종료됨');
+      return false;
+    }
+
+    const terminal = vscode.window.createTerminal({
+      cwd: record.cwd,
+      name: record.title || 'Codex resume',
+    });
+    terminal.show(false);
+    terminal.sendText(`codex resume ${record.sessionId}`, true);
+    await markPidCodexResumed(record.pid);
+    return true;
+  }
+
   async function removeTerminalPid(terminal) {
     const pid = await getTerminalPid(terminal);
     await markPidReattached(pid);
@@ -403,12 +551,16 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
   async function attachDetachedTerminal() {
     await sweepExpired();
     const records = await readRecords();
+    const resumableSessionIds = await createCodexResumableSessionSet(records);
     const items = createDetachedTerminalQuickPickItems(records, {
       now: now(),
       formatTime,
       historyRetentionMs,
       isAlive(record) {
         return isProcessAlive(record.pid, processApi);
+      },
+      canResumeCodexSession(record) {
+        return resumableSessionIds.has(record.sessionId);
       },
     });
 
@@ -427,6 +579,11 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
     }
 
     if (!selected.canAttach) {
+      if (selected.canResumeCodexSession) {
+        await resumeCodexSessionFromRecord(selected.record);
+        return;
+      }
+
       vscode.window.showInformationMessage?.(
         selected.unavailableReason || 'Detached terminal session is not attachable.',
       );
@@ -435,6 +592,16 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
 
     if (!isProcessAlive(selected.pid, processApi)) {
       await markPidTerminated(selected.pid, 'dead');
+      const deadRecord = {
+        ...selected.record,
+        terminatedAt: now(),
+        terminationReason: 'dead',
+      };
+      if (await canResumeCodexRecord(deadRecord)) {
+        await resumeCodexSessionFromRecord(deadRecord);
+        return;
+      }
+
       vscode.window.showInformationMessage?.('프로세스 종료됨');
       return;
     }

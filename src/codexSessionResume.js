@@ -1220,6 +1220,7 @@ module.exports = {
   collectProcessTreeRows,
   createCodexSessionResumeManager,
   createDefaultHasSavedSession,
+  createDefaultLoadSessionRegistryRecords,
   extractCodexResumeSessionId,
   extractCodexSessionId,
   isCodexProcessCommand,
