@@ -21,3 +21,31 @@ test('package contributes Cmd+Shift+T to restore detached terminal sessions', ()
     },
   );
 });
+
+test('package contributes agent notification commands and jump-to-unread keybinding', () => {
+  const packageJson = readPackageJson();
+  const commandIds = packageJson.contributes.commands.map((entry) => entry.command);
+
+  assert.equal(commandIds.includes('codexTerminal.showAgentNotifications'), true);
+  assert.equal(commandIds.includes('codexTerminal.openLatestAgentNotification'), true);
+  assert.equal(commandIds.includes('codexTerminal.markAgentNotificationsRead'), true);
+  assert.equal(commandIds.includes('codexTerminal.clearAgentNotifications'), true);
+
+  assert.deepEqual(
+    packageJson.contributes.keybindings.find(
+      (entry) => entry.command === 'codexTerminal.openLatestAgentNotification',
+    ),
+    {
+      command: 'codexTerminal.openLatestAgentNotification',
+      key: 'cmd+shift+u',
+      mac: 'cmd+shift+u',
+    },
+  );
+
+  assert.equal(
+    packageJson.contributes.configuration.properties[
+      'codexTerminal.agentNotifications.enabled'
+    ].default,
+    true,
+  );
+});

@@ -373,7 +373,7 @@ test('normalizeCodexConfigToml removes Codex thread id from visible title surfac
   assert.equal(value.includes('status_line = ["model-with-reasoning", "fast-mode"]'), true);
 });
 
-test('normalizeCodexHooksJson appends the managed SessionStart hook', () => {
+test('normalizeCodexHooksJson appends managed SessionStart and notification hooks', () => {
   const existing = {
     hooks: {
       SessionStart: [
@@ -407,8 +407,7 @@ test('normalizeCodexHooksJson appends the managed SessionStart hook', () => {
 
   assert.equal(changed, true);
   assert.equal(value.hooks.SessionStart.length, 1);
-  assert.deepEqual(value.hooks.Stop, existing.hooks.Stop);
-  assert.equal(value.hooks.SessionStart[0].hooks.length, 2);
+  assert.equal(value.hooks.SessionStart[0].hooks.length, 3);
   assert.equal(
     value.hooks.SessionStart[0].hooks[0].command,
     'node /Users/seongho/.loom/hooks/loom-state-bridge.js #loom-state-bridge:v1',
@@ -417,6 +416,25 @@ test('normalizeCodexHooksJson appends the managed SessionStart hook', () => {
     value.hooks.SessionStart[0].hooks[1].command,
     /^node '\/tmp\/codex-vscode-terminal-tools\/scripts\/codex-session-registry-hook\.js' #codex-vscode-terminal-tools:session-registry:v1$/,
   );
+  assert.match(
+    value.hooks.SessionStart[0].hooks[2].command,
+    /^node '\/tmp\/codex-vscode-terminal-tools\/scripts\/codex-notification-hook\.js' #codex-vscode-terminal-tools:agent-notifications:v1$/,
+  );
+
+  for (const eventName of [
+    'UserPromptSubmit',
+    'PermissionRequest',
+    'PreToolUse',
+    'PostToolUse',
+    'Stop',
+  ]) {
+    assert.equal(value.hooks[eventName].length, 1);
+    assert.equal(value.hooks[eventName][0].matcher, '*');
+    assert.match(
+      value.hooks[eventName][0].hooks.at(-1).command,
+      /^node '\/tmp\/codex-vscode-terminal-tools\/scripts\/codex-notification-hook\.js' #codex-vscode-terminal-tools:agent-notifications:v1$/,
+    );
+  }
 
   assert.deepEqual(
     normalizeCodexHooksJson(value, {

@@ -60,6 +60,16 @@ const DEFAULT_CODEX_TERMINAL_TITLE = [
 const CODEX_SESSION_REGISTRY_HOOK_MARKER =
   '#codex-vscode-terminal-tools:session-registry:v1';
 const CODEX_SESSION_REGISTRY_HOOK_EVENT = 'SessionStart';
+const CODEX_AGENT_NOTIFICATION_HOOK_MARKER =
+  '#codex-vscode-terminal-tools:agent-notifications:v1';
+const CODEX_AGENT_NOTIFICATION_HOOK_EVENTS = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'PermissionRequest',
+  'PreToolUse',
+  'PostToolUse',
+  'Stop',
+];
 
 const MANAGED_SIDEBAR_VIEW_TOGGLES = [
   {
@@ -625,6 +635,14 @@ function managedCodexSessionRegistryHookCommand(projectRoot) {
   ].join(' ');
 }
 
+function managedCodexNotificationHookCommand(projectRoot) {
+  return [
+    'node',
+    shellQuote(path.join(projectRoot, 'scripts', 'codex-notification-hook.js')),
+    CODEX_AGENT_NOTIFICATION_HOOK_MARKER,
+  ].join(' ');
+}
+
 function isManagedCodexSessionRegistryHook(hook) {
   return (
     hook &&
@@ -633,13 +651,44 @@ function isManagedCodexSessionRegistryHook(hook) {
   );
 }
 
+function isManagedCodexNotificationHook(hook) {
+  return (
+    hook &&
+    typeof hook.command === 'string' &&
+    hook.command.includes(CODEX_AGENT_NOTIFICATION_HOOK_MARKER)
+  );
+}
+
 function cloneHookGroupWithoutManagedHook(group) {
   const nextGroup = {
     ...(group && typeof group === 'object' ? group : {}),
   };
   const hooks = Array.isArray(nextGroup.hooks) ? nextGroup.hooks : [];
-  nextGroup.hooks = hooks.filter((hook) => !isManagedCodexSessionRegistryHook(hook));
+  nextGroup.hooks = hooks.filter(
+    (hook) =>
+      !isManagedCodexSessionRegistryHook(hook) &&
+      !isManagedCodexNotificationHook(hook),
+  );
   return nextGroup;
+}
+
+function appendManagedHook(hooks, eventName, managedHook) {
+  const groups = Array.isArray(hooks[eventName]) ? hooks[eventName] : [];
+  const wildcardGroup = groups.find(
+    (group) => group && typeof group === 'object' && group.matcher === '*',
+  );
+
+  if (wildcardGroup) {
+    wildcardGroup.hooks = Array.isArray(wildcardGroup.hooks) ? wildcardGroup.hooks : [];
+    wildcardGroup.hooks.push(managedHook);
+  } else {
+    groups.push({
+      matcher: '*',
+      hooks: [managedHook],
+    });
+  }
+
+  hooks[eventName] = groups;
 }
 
 function normalizeCodexHooksJson(source = {}, { projectRoot = defaultProjectRoot() } = {}) {
@@ -659,24 +708,15 @@ function normalizeCodexHooksJson(source = {}, { projectRoot = defaultProjectRoot
     type: 'command',
     command: managedCodexSessionRegistryHookCommand(projectRoot),
   };
-  const sessionStartGroups = Array.isArray(hooks[CODEX_SESSION_REGISTRY_HOOK_EVENT])
-    ? hooks[CODEX_SESSION_REGISTRY_HOOK_EVENT]
-    : [];
-  const wildcardGroup = sessionStartGroups.find(
-    (group) => group && typeof group === 'object' && group.matcher === '*',
-  );
+  appendManagedHook(hooks, CODEX_SESSION_REGISTRY_HOOK_EVENT, managedHook);
 
-  if (wildcardGroup) {
-    wildcardGroup.hooks = Array.isArray(wildcardGroup.hooks) ? wildcardGroup.hooks : [];
-    wildcardGroup.hooks.push(managedHook);
-  } else {
-    sessionStartGroups.push({
-      matcher: '*',
-      hooks: [managedHook],
+  const managedNotificationHookCommand = managedCodexNotificationHookCommand(projectRoot);
+  for (const eventName of CODEX_AGENT_NOTIFICATION_HOOK_EVENTS) {
+    appendManagedHook(hooks, eventName, {
+      type: 'command',
+      command: managedNotificationHookCommand,
     });
   }
-
-  hooks[CODEX_SESSION_REGISTRY_HOOK_EVENT] = sessionStartGroups;
   value.hooks = hooks;
 
   return {

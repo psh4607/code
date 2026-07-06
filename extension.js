@@ -17,11 +17,19 @@ const {
   OPEN_CURRENT_PULL_REQUEST_COMMAND,
   createTitlebarInfoManager,
 } = require('./src/titlebarInfo');
+const {
+  CLEAR_AGENT_NOTIFICATIONS_COMMAND,
+  MARK_AGENT_NOTIFICATIONS_READ_COMMAND,
+  OPEN_LATEST_AGENT_NOTIFICATION_COMMAND,
+  SHOW_AGENT_NOTIFICATIONS_COMMAND,
+  createAgentNotificationManager,
+} = require('./src/agentNotificationManager');
 
 let detachedTerminalTtlManager;
 let codexSessionResumeManager;
 let terminalCwdColorManager;
 let titlebarInfoManager;
+let agentNotificationManager;
 
 function activate(context) {
   detachedTerminalTtlManager = createDetachedTerminalTtlManager(vscode, {
@@ -40,12 +48,24 @@ function activate(context) {
     context,
   });
   titlebarInfoManager.start();
+  const agentNotificationConfig = vscode.workspace.getConfiguration('codexTerminal');
+  agentNotificationManager = createAgentNotificationManager(vscode, {
+    context,
+    pollIntervalMs: agentNotificationConfig.get(
+      'agentNotifications.pollIntervalMs',
+      1000,
+    ),
+  });
+  if (agentNotificationConfig.get('agentNotifications.enabled', true)) {
+    agentNotificationManager.start();
+  }
 
   context.subscriptions.push(
     detachedTerminalTtlManager,
     codexSessionResumeManager,
     terminalCwdColorManager,
     titlebarInfoManager,
+    agentNotificationManager,
     vscode.commands.registerCommand(
       'codexTerminal.newFromActiveCwd',
       createNewTerminalFromActiveCwdCommand(vscode),
@@ -74,10 +94,27 @@ function activate(context) {
       OPEN_CURRENT_PULL_REQUEST_COMMAND,
       titlebarInfoManager.openCurrentPullRequest,
     ),
+    vscode.commands.registerCommand(
+      SHOW_AGENT_NOTIFICATIONS_COMMAND,
+      agentNotificationManager.showAgentNotifications,
+    ),
+    vscode.commands.registerCommand(
+      OPEN_LATEST_AGENT_NOTIFICATION_COMMAND,
+      agentNotificationManager.openLatestAgentNotification,
+    ),
+    vscode.commands.registerCommand(
+      MARK_AGENT_NOTIFICATIONS_READ_COMMAND,
+      agentNotificationManager.markAgentNotificationsRead,
+    ),
+    vscode.commands.registerCommand(
+      CLEAR_AGENT_NOTIFICATIONS_COMMAND,
+      agentNotificationManager.clearAgentNotifications,
+    ),
   );
 }
 
 function deactivate() {
+  agentNotificationManager?.dispose();
   titlebarInfoManager?.dispose();
   terminalCwdColorManager?.dispose();
   codexSessionResumeManager?.dispose();
