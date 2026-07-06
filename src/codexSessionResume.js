@@ -439,9 +439,64 @@ function findRecordForTerminal(terminal, terminalIndex, records) {
   return undefined;
 }
 
-function findRecordForRestoredTerminal(terminal, terminalIndex, records) {
+function createReservedRestoreSessionIds(terminals, records) {
+  const reservedSessionIds = new Set();
+  for (const [terminalIndex, terminal] of (terminals || []).entries()) {
+    const record = findRecordForTerminal(terminal, terminalIndex, records);
+    if (record?.sessionId) {
+      reservedSessionIds.add(record.sessionId);
+    }
+  }
+  return reservedSessionIds;
+}
+
+function findRelativeCwdRecordForRestoredTerminal(terminal, records, options = {}) {
+  const cwd = getTerminalCwd(terminal);
+  const title = getTerminalTitle(terminal);
+  if (!cwd || !isLikelyCwdTitle(title)) {
+    return undefined;
+  }
+
+  const claimedSessionIds = options.claimedSessionIds ?? new Set();
+  const reservedSessionIds = options.reservedSessionIds ?? new Set();
+  const terminalGroup = (options.terminals || [])
+    .map((candidate, terminalIndex) => ({
+      cwd: getTerminalCwd(candidate),
+      terminal: candidate,
+      terminalIndex,
+      title: getTerminalTitle(candidate),
+    }))
+    .filter((candidate) => candidate.cwd === cwd && isLikelyCwdTitle(candidate.title));
+  const terminalGroupIndex = terminalGroup.findIndex((candidate) => candidate.terminal === terminal);
+  if (terminalGroup.length < 2 || terminalGroupIndex < 0) {
+    return undefined;
+  }
+
+  const unavailableSessionIds = new Set(reservedSessionIds);
+  const recentCandidates = records
+    .filter(
+      (record) =>
+        record.codexProcessActive &&
+        record.cwd === cwd &&
+        record.sessionId &&
+        !unavailableSessionIds.has(record.sessionId),
+    )
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt || a.terminalIndex - b.terminalIndex)
+    .slice(0, terminalGroup.length);
+
+  const candidate = recentCandidates.sort(
+    (a, b) => a.terminalIndex - b.terminalIndex || a.lastSeenAt - b.lastSeenAt,
+  )[terminalGroupIndex];
+  if (candidate && !claimedSessionIds.has(candidate.sessionId)) {
+    return candidate;
+  }
+  return undefined;
+}
+
+function findRecordForRestoredTerminal(terminal, terminalIndex, records, options = {}) {
+  const claimedSessionIds = options.claimedSessionIds ?? new Set();
   const directMatch = findRecordForTerminal(terminal, terminalIndex, records);
-  if (directMatch) {
+  if (directMatch && !claimedSessionIds.has(directMatch.sessionId)) {
     return directMatch;
   }
 
@@ -456,9 +511,11 @@ function findRecordForRestoredTerminal(terminal, terminalIndex, records) {
       (record) =>
         record.codexProcessActive &&
         record.cwd === cwd &&
-        record.terminalIndex === terminalIndex,
+        record.terminalIndex === terminalIndex &&
+        !claimedSessionIds.has(record.sessionId),
     )
-    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0];
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0] ??
+    findRelativeCwdRecordForRestoredTerminal(terminal, records, options);
 }
 
 function findSessionRegistryRecordForTerminal(registryRecords, terminal, processId) {
@@ -824,8 +881,11 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     const registryRecords = await readSessionRegistryRecords();
     const updatedRecords = [...records];
     const restoreCheckedAt = now();
+    const terminals = vscode.window.terminals || [];
+    const claimedSessionIds = new Set();
+    const reservedSessionIds = createReservedRestoreSessionIds(terminals, records);
 
-    for (const [terminalIndex, terminal] of (vscode.window.terminals || []).entries()) {
+    for (const [terminalIndex, terminal] of terminals.entries()) {
       const title = getTerminalTitle(terminal);
       const processId = await getTerminalPid(terminal);
       const titleSessionId = extractCodexSessionId(title);
@@ -836,7 +896,11 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         processId,
       );
       const matchedRecord = canUseStoredRestore
-        ? findRecordForRestoredTerminal(terminal, terminalIndex, records)
+        ? findRecordForRestoredTerminal(terminal, terminalIndex, records, {
+            claimedSessionIds,
+            reservedSessionIds,
+            terminals,
+          })
         : undefined;
       const titleIsResumeEvidence =
         canUseStoredRestore &&
@@ -875,6 +939,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         );
         continue;
       }
+      claimedSessionIds.add(record.sessionId);
 
       if (resumedThisActivation.has(record.sessionId)) {
         upsertRestoreDecisionRecord(

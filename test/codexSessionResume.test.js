@@ -562,6 +562,57 @@ test('manager auto-resumes the latest same-tab same-cwd Codex record when restor
   );
 });
 
+test('manager auto-resumes cwd-only restored terminals by same-cwd relative order when tab indexes shift', async () => {
+  const first = createTerminal({
+    name: '~/projects/dalpha/inf',
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const second = createTerminal({
+    name: '~/projects/dalpha/inf',
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 201,
+  });
+  const fake = createFakeVscode({ terminals: [first, second] });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 5,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 950,
+      lastSeenAt: 950,
+      processId: 601,
+      sessionId: SESSION_ID_B,
+      terminalIndex: 8,
+      title: `inf | ${SESSION_ID_B} | Fast off`,
+    },
+  ]);
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 201, ppid: 1, command: '/bin/zsh -l' },
+    ],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.restoreCodexSessions();
+
+  assert.deepEqual(first.sentText, [[`codex resume ${SESSION_ID_A}`, true]]);
+  assert.deepEqual(second.sentText, [[`codex resume ${SESSION_ID_B}`, true]]);
+});
+
 test('manager skips auto-resume when the saved Codex session is missing', async () => {
   const terminal = createTerminal({
     name: '~/projects/dalpha/inf',
