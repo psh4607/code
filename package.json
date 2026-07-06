@@ -161,6 +161,7 @@
     "patch:vscode-opaque-overlays": "node scripts/patch-vscode-all-targets.js --only patch-vscode-opaque-overlays.js --only sign-vscode-app.js",
     "patch:vscode-titlebar-center": "node scripts/patch-vscode-all-targets.js --only patch-vscode-titlebar-center.js --only sign-vscode-app.js",
     "patch:vscode-terminal-order": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-order.js --only sign-vscode-app.js",
+    "patch:vscode-sticky-notifications": "node scripts/patch-vscode-all-targets.js --only patch-vscode-sticky-notifications.js --only sign-vscode-app.js",
     "patch:vscode-terminal-tabs-layout": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-tabs-title-breaks.js --only patch-vscode-terminal-tabs-layout.js --only sign-vscode-app.js",
     "patch:vscode-watermark": "node scripts/patch-vscode-all-targets.js --only patch-vscode-watermark.js --only sign-vscode-app.js",
     "record:terminal-input": "node scripts/terminal-input-recorder.js",

@@ -42,6 +42,11 @@ const expectedDefaults = [
     '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
   ],
   [
+    'scripts/patch-vscode-sticky-notifications.js',
+    'VSCODE_WORKBENCH_MAIN',
+    '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
+  ],
+  [
     'scripts/patch-vscode-icon.js',
     'VSCODE_ICON_PATH',
     '/Applications/Code.app/Contents/Resources/Code.icns',

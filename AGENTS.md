@@ -168,6 +168,8 @@ using. `Developer: Reload Window` is not enough because those bundles are loaded
 `scripts/patch-vscode-watermark.js` own icon and CSS customization.
 `scripts/patch-vscode-terminal-tabs-layout.js` owns terminal tab spacing and wrapping CSS.
 `scripts/patch-vscode-terminal-tabs-title-breaks.js` owns terminal title line breaks at `|` separators.
+`scripts/patch-vscode-sticky-notifications.js` owns sticky VS Code notifications for this
+extension by adding it to the workbench urgent notification sources.
 Keep these as host-local patches; do not move them into extension runtime code unless VS Code exposes
 a stable API for the behavior.
 

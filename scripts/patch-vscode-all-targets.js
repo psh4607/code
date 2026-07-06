@@ -91,6 +91,12 @@ function allPatchSteps(target) {
       },
     },
     {
+      script: 'patch-vscode-sticky-notifications.js',
+      env: {
+        VSCODE_WORKBENCH_MAIN: target.workbenchPath,
+      },
+    },
+    {
       script: 'patch-vscode-icon.js',
       env: {
         VSCODE_ICON_PATH: target.iconPath,

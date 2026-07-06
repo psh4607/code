@@ -42,8 +42,8 @@ npm run ensure:code-app
 - The local VS Code extension symlink under `~/.vscode/extensions`.
 - The global `patch-vscode-terminal-order` wrapper.
 - The global `patch-vscode-ime-guard` wrapper.
-- The `Code.app` and upstream VS Code workbench bundle/CSS patches, Claude Code title-menu patch,
-  runtime Dock icon patch, and app icon.
+- The `Code.app` and upstream VS Code workbench bundle/CSS patches, sticky notification patch,
+  Claude Code title-menu patch, runtime Dock icon patch, and app icon.
 
 The managed app intentionally shares the existing VS Code user data and extensions:
 `/Users/seongho/Library/Application Support/Code/User` and `~/.vscode/extensions`.
@@ -77,6 +77,12 @@ Run it again after manually updating VS Code. The global wrapper now refreshes `
 from the upstream VS Code app and runs all local workbench patches against both app bundles,
 including the IME composition guard described below. User setting `update.mode: none` is still
 managed so the shared VS Code profile does not silently update itself outside this flow.
+
+To reapply only the sticky VS Code notification patch:
+
+```sh
+npm run patch:vscode-sticky-notifications
+```
 
 ## Persistent Terminal Revival
 
