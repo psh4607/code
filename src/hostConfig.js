@@ -150,6 +150,10 @@ const TERMINAL_EMPTY_AREA_MARKER =
   'this._terminalGroupService.instances.length-1,I=this._terminalGroupService.instances[S]';
 const TERMINAL_EMPTY_NATIVE_MARKER =
   'this._register($(this._tabListDomElement,"mousedown",async o=>{if(o.button!==0)return';
+const TERMINAL_TABS_TWO_LINE_HEIGHT_MARKER =
+  'super("TerminalTabsList",e,{getHeight:()=>68,getTemplateId:()=>"terminal.tabs"}';
+const TERMINAL_TABS_TWO_LINE_PADDING_MARKER = 'paddingBottom:68,dnd:l.createInstance(pft)';
+const TERMINAL_TABS_TITLE_BREAKS_MARKER = '__codexVscodeTerminalTabTitleBreaks';
 const IME_GUARD_MARKER =
   '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */';
 const IME_EARLY_CAPTURE_MARKER = 'addEventListener("keydown",p,!0)';
@@ -177,6 +181,13 @@ const IME_DISPATCH_MARKER =
 const WATERMARK_PATCH_MARKER = 'codex-vscode-terminal-tools: hide-empty-editor-watermark';
 const WATERMARK_PATCH_RULE =
   '.monaco-workbench .part.editor>.content .editor-group-container>.editor-group-watermark-wrapper .editor-group-watermark .letterpress{display:none!important;}';
+const TERMINAL_TABS_LAYOUT_PATCH_MARKER =
+  'codex-vscode-terminal-tools: terminal-tabs-two-line-layout';
+const TERMINAL_TABS_LAYOUT_PATCH_RULES = [
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
+];
 const DOCK_ICON_PATCH_MARKER = 'Codex VS Code Dock icon patch';
 
 function defaultProjectRoot() {
@@ -196,12 +207,13 @@ function createDefaultPaths({
     managedAppPath: vscodeAppPath,
   });
   const managedAppPath = managedCodeAppPaths.managedAppPath;
+  const sourceAppPath = managedCodeAppPaths.sourceAppPath;
 
   return {
     home,
     projectRoot,
     applicationsDir,
-    vscodeSourceAppPath: managedCodeAppPaths.sourceAppPath,
+    vscodeSourceAppPath: sourceAppPath,
     vscodeAppPath: managedAppPath,
     managedCodeAppPaths,
     userSettingsPath: path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
@@ -227,12 +239,18 @@ function createDefaultPaths({
     workbenchPath:
       process.env.VSCODE_WORKBENCH_MAIN ||
       path.join(managedAppPath, 'Contents', 'Resources', 'app', 'out', 'vs', 'workbench', 'workbench.desktop.main.js'),
+    sourceWorkbenchPath:
+      path.join(sourceAppPath, 'Contents', 'Resources', 'app', 'out', 'vs', 'workbench', 'workbench.desktop.main.js'),
     workbenchCssPath:
       process.env.VSCODE_WORKBENCH_CSS ||
       path.join(managedAppPath, 'Contents', 'Resources', 'app', 'out', 'vs', 'workbench', 'workbench.desktop.main.css'),
+    sourceWorkbenchCssPath:
+      path.join(sourceAppPath, 'Contents', 'Resources', 'app', 'out', 'vs', 'workbench', 'workbench.desktop.main.css'),
     mainPath:
       process.env.VSCODE_MAIN_PATH ||
       path.join(managedAppPath, 'Contents', 'Resources', 'app', 'out', 'main.js'),
+    sourceMainPath:
+      path.join(sourceAppPath, 'Contents', 'Resources', 'app', 'out', 'main.js'),
     claudeExtensionsDir: path.join(home, '.vscode', 'extensions'),
     vscodeIconSourcePath:
       process.env.CODEX_VSCODE_ICON_SOURCE || path.join(projectRoot, 'assets', 'warp-glass-sky.icns'),
@@ -241,9 +259,13 @@ function createDefaultPaths({
     vscodeIconPath:
       process.env.VSCODE_ICON_PATH ||
       path.join(managedAppPath, 'Contents', 'Resources', 'Code.icns'),
+    sourceVscodeIconPath:
+      path.join(sourceAppPath, 'Contents', 'Resources', 'Code.icns'),
     vscodeDockIconPngPath:
       process.env.VSCODE_DOCK_ICON_PNG_PATH ||
       path.join(managedAppPath, 'Contents', 'Resources', 'codex-warp-glass-sky.png'),
+    sourceVscodeDockIconPngPath:
+      path.join(sourceAppPath, 'Contents', 'Resources', 'codex-warp-glass-sky.png'),
   };
 }
 
@@ -814,6 +836,9 @@ function checkWorkbenchPatches(workbenchPath) {
     ['terminal color argument', TERMINAL_COLOR_ARGUMENT_MARKER],
     ['terminal empty-area focus', TERMINAL_EMPTY_AREA_MARKER],
     ['terminal native empty-area focus', TERMINAL_EMPTY_NATIVE_MARKER],
+    ['terminal multi-line tab height', TERMINAL_TABS_TWO_LINE_HEIGHT_MARKER],
+    ['terminal multi-line tab padding', TERMINAL_TABS_TWO_LINE_PADDING_MARKER],
+    ['terminal pipe title breaks', TERMINAL_TABS_TITLE_BREAKS_MARKER],
     ['IME guard helper', IME_GUARD_MARKER],
     ['IME early-capture hook', IME_EARLY_CAPTURE_MARKER],
     ['IME recent-composition defer', IME_RECENT_COMPOSITION_MARKER],
@@ -921,6 +946,22 @@ function checkVscodeWatermarkPatch(cssPath) {
   };
 }
 
+function checkVscodeTerminalTabsLayoutPatch(cssPath) {
+  if (!fs.existsSync(cssPath)) {
+    return { ok: false, detail: 'VS Code workbench CSS missing' };
+  }
+
+  const source = fs.readFileSync(cssPath, 'utf8');
+  const ok =
+    source.includes(TERMINAL_TABS_LAYOUT_PATCH_MARKER) &&
+    TERMINAL_TABS_LAYOUT_PATCH_RULES.every((rule) => source.includes(rule));
+
+  return {
+    ok,
+    detail: ok ? 'terminal tabs use multi-line wrapping layout' : 'terminal tabs layout patch missing',
+  };
+}
+
 function checkVscodeDockIconPatch({ mainPath, pngSourcePath, pngTargetPath }) {
   if (!fs.existsSync(mainPath)) {
     return { ok: false, detail: 'VS Code main bundle missing' };
@@ -961,6 +1002,7 @@ function checkHostConfig({
   checkVscodeIcon = true,
   checkDockIcon = true,
   checkWatermark = true,
+  checkTerminalTabsLayout = true,
 } = {}) {
   const settings = fs.existsSync(paths.userSettingsPath)
     ? readJsoncFile(paths.userSettingsPath, {})
@@ -1013,6 +1055,8 @@ function checkHostConfig({
   if (checkWorkbench) {
     const workbench = checkWorkbenchPatches(paths.workbenchPath);
     statuses.push(status('workbench', workbench.ok, workbench.detail));
+    const upstreamWorkbench = checkWorkbenchPatches(paths.sourceWorkbenchPath);
+    statuses.push(status('upstreamWorkbench', upstreamWorkbench.ok, upstreamWorkbench.detail));
   }
 
   if (checkClaude) {
@@ -1027,6 +1071,12 @@ function checkHostConfig({
       appBundlePath: paths.vscodeAppPath,
     });
     statuses.push(status('vscodeIcon', vscodeIcon.ok, vscodeIcon.detail));
+    const upstreamVscodeIcon = checkVscodeIconPatch({
+      sourcePath: paths.vscodeIconSourcePath,
+      targetPath: paths.sourceVscodeIconPath,
+      appBundlePath: paths.vscodeSourceAppPath,
+    });
+    statuses.push(status('upstreamVscodeIcon', upstreamVscodeIcon.ok, upstreamVscodeIcon.detail));
   }
 
   if (checkDockIcon) {
@@ -1036,11 +1086,34 @@ function checkHostConfig({
       pngTargetPath: paths.vscodeDockIconPngPath,
     });
     statuses.push(status('dockIcon', dockIcon.ok, dockIcon.detail));
+    const upstreamDockIcon = checkVscodeDockIconPatch({
+      mainPath: paths.sourceMainPath,
+      pngSourcePath: paths.vscodeIconPngSourcePath,
+      pngTargetPath: paths.sourceVscodeDockIconPngPath,
+    });
+    statuses.push(status('upstreamDockIcon', upstreamDockIcon.ok, upstreamDockIcon.detail));
   }
 
   if (checkWatermark) {
     const watermark = checkVscodeWatermarkPatch(paths.workbenchCssPath);
     statuses.push(status('watermark', watermark.ok, watermark.detail));
+    const upstreamWatermark = checkVscodeWatermarkPatch(paths.sourceWorkbenchCssPath);
+    statuses.push(status('upstreamWatermark', upstreamWatermark.ok, upstreamWatermark.detail));
+  }
+
+  if (checkTerminalTabsLayout) {
+    const terminalTabsLayout = checkVscodeTerminalTabsLayoutPatch(paths.workbenchCssPath);
+    statuses.push(status('terminalTabsLayout', terminalTabsLayout.ok, terminalTabsLayout.detail));
+    const upstreamTerminalTabsLayout = checkVscodeTerminalTabsLayoutPatch(
+      paths.sourceWorkbenchCssPath,
+    );
+    statuses.push(
+      status(
+        'upstreamTerminalTabsLayout',
+        upstreamTerminalTabsLayout.ok,
+        upstreamTerminalTabsLayout.detail,
+      ),
+    );
   }
 
   return statuses;
@@ -1054,6 +1127,7 @@ module.exports = {
   checkHostConfig,
   checkVscodeDockIconPatch,
   checkVscodeIconPatch,
+  checkVscodeTerminalTabsLayoutPatch,
   checkVscodeWatermarkPatch,
   checkWorkbenchPatches,
   createDefaultPaths,

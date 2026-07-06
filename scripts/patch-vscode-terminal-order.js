@@ -63,6 +63,21 @@ const vscode127OriginalTabsNativeEmptyClick =
 const vscode127PatchedTabsNativeEmptyClick =
   'this._register($(this._tabContainer,"drop",o=>{this._shouldHandleEmptyAreaDrop(o)&&this._handleContainerDrop(o)})),this._register($(this._tabListDomElement,"mousedown",async o=>{if(o.button!==0)return;let n=o.target;if(n?.closest?.(".monaco-list-row,.terminal-tabs-chat-entry"))return;let r=this._terminalGroupService.instances.length-1,s=this._terminalGroupService.instances[r];s&&(this._terminalGroupService.setActiveInstance(s),this._tabList.setSelection([r]),this._tabList.setFocus([r]),this._tabList.reveal(r),o.preventDefault(),o.stopPropagation(),await s.focusWhenReady())})),this._register($(this._tabListDomElement,"click",o=>{if(o.button!==0)return;let n=o.target;if(n?.closest?.(".monaco-list-row,.terminal-tabs-chat-entry"))return;o.preventDefault(),o.stopPropagation(),setTimeout(async()=>{let r=this._terminalGroupService.instances.length-1,s=this._terminalGroupService.instances[r];s&&(this._terminalGroupService.setActiveInstance(s),this._tabList.setSelection([r]),this._tabList.setFocus([r]),this._tabList.reveal(r),await s.focusWhenReady())},0)})),this._register($(t,"mousedown",async o=>{';
 
+const vscode127OriginalTerminalTabsListHeight =
+  'super("TerminalTabsList",e,{getHeight:()=>22,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:22,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+
+const vscode127LegacyPatchedTerminalTabsListHeight =
+  'super("TerminalTabsList",e,{getHeight:()=>44,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:44,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+
+const vscode127Legacy48PatchedTerminalTabsListHeight =
+  'super("TerminalTabsList",e,{getHeight:()=>48,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:48,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+
+const vscode127Legacy64PatchedTerminalTabsListHeight =
+  'super("TerminalTabsList",e,{getHeight:()=>64,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:64,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+
+const vscode127PatchedTerminalTabsListHeight =
+  'super("TerminalTabsList",e,{getHeight:()=>68,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:68,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+
 const patchHeader = '/* Patched by codex-vscode-terminal-tools. Reapply with patch-vscode-terminal-order. */\n';
 const claudeEditorTitleCommands = new Set([
   'claude-vscode.editor.openLast',
@@ -322,6 +337,18 @@ const terminalTabsNativeEmptyClickState = getReplacementPatchState({
   patchedMarkers: [vscode127PatchedTabsNativeEmptyClick],
   inspectTarget: 'terminal tabs native click listeners',
 });
+const terminalTabsListHeightState = getReplacementPatchState({
+  source,
+  name: 'terminal tabs multi-line row height',
+  sourceMarkers: [
+    vscode127OriginalTerminalTabsListHeight,
+    vscode127LegacyPatchedTerminalTabsListHeight,
+    vscode127Legacy48PatchedTerminalTabsListHeight,
+    vscode127Legacy64PatchedTerminalTabsListHeight,
+  ],
+  patchedMarkers: [vscode127PatchedTerminalTabsListHeight],
+  inspectTarget: 'TerminalTabsList row height',
+});
 
 const workbenchNeedsPatch =
   terminalOrderState === 'needs-patch' ||
@@ -329,7 +356,8 @@ const workbenchNeedsPatch =
   terminalActiveTabColorState.state === 'needs-patch' ||
   terminalTabsEmptyDoubleClickState.state === 'needs-patch' ||
   terminalTabsEmptyClickState.state === 'needs-patch' ||
-  terminalTabsNativeEmptyClickState.state === 'needs-patch';
+  terminalTabsNativeEmptyClickState.state === 'needs-patch' ||
+  terminalTabsListHeightState.state === 'needs-patch';
 
 if (!workbenchNeedsPatch) {
   checkSyntax(workbenchPath);
@@ -377,6 +405,13 @@ if (!workbenchNeedsPatch) {
     nextSource = nextSource.replace(
       terminalTabsNativeEmptyClickState.marker,
       vscode127PatchedTabsNativeEmptyClick,
+    );
+  }
+
+  if (terminalTabsListHeightState.state === 'needs-patch') {
+    nextSource = nextSource.replace(
+      terminalTabsListHeightState.marker,
+      vscode127PatchedTerminalTabsListHeight,
     );
   }
 

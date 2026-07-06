@@ -22,7 +22,7 @@
       "properties": {
         "codexTerminal.cwdColorRules": {
           "type": "array",
-          "description": "Optional path-prefix rules that override the deterministic hash color for terminal tab icon colors.",
+          "description": "Optional path-prefix rules that override automatic terminal tab colors.",
           "default": [],
           "items": {
             "type": "object",
@@ -95,13 +95,15 @@
   "scripts": {
     "apply": "node scripts/apply-host-config.js",
     "doctor": "node scripts/doctor.js",
-    "patch": "npm run patch:vscode-terminal-order && npm run patch:vscode-ime-guard && npm run patch:vscode-icon && npm run patch:vscode-dock-icon && npm run patch:vscode-watermark && npm run patch:managed-code-sign",
+    "patch": "node scripts/patch-vscode-all-targets.js",
     "patch:managed-code-sign": "node scripts/sign-managed-code-app.js",
-    "patch:vscode-dock-icon": "node scripts/patch-vscode-dock-icon.js",
-    "patch:vscode-icon": "node scripts/patch-vscode-icon.js",
-    "patch:vscode-ime-guard": "node scripts/patch-vscode-ime-guard.js",
-    "patch:vscode-terminal-order": "node scripts/patch-vscode-terminal-order.js",
-    "patch:vscode-watermark": "node scripts/patch-vscode-watermark.js",
+    "patch:vscode-sign": "node scripts/patch-vscode-all-targets.js --only sign-vscode-app.js",
+    "patch:vscode-dock-icon": "node scripts/patch-vscode-all-targets.js --only patch-vscode-dock-icon.js --only sign-vscode-app.js",
+    "patch:vscode-icon": "node scripts/patch-vscode-all-targets.js --only patch-vscode-icon.js --only sign-vscode-app.js",
+    "patch:vscode-ime-guard": "node scripts/patch-vscode-all-targets.js --only patch-vscode-ime-guard.js --only sign-vscode-app.js",
+    "patch:vscode-terminal-order": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-order.js --only sign-vscode-app.js",
+    "patch:vscode-terminal-tabs-layout": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-tabs-title-breaks.js --only patch-vscode-terminal-tabs-layout.js --only sign-vscode-app.js",
+    "patch:vscode-watermark": "node scripts/patch-vscode-all-targets.js --only patch-vscode-watermark.js --only sign-vscode-app.js",
     "record:terminal-input": "node scripts/terminal-input-recorder.js",
     "test": "node --test test/*.test.js"
   },

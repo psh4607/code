@@ -7,7 +7,8 @@ Local VS Code extension for small Codex terminal workflows.
 This project is the source of truth for the local VS Code/Codex terminal setup on this Mac. The
 official `/Applications/Visual Studio Code.app` bundle remains the upstream app installed by
 Homebrew. `npm run apply` creates or refreshes the managed runtime app at `/Applications/Code.app`
-and applies local patches only to that managed app.
+and applies local bundle patches to both `/Applications/Code.app` and
+`/Applications/Visual Studio Code.app`.
 
 Check whether everything is still applied:
 
@@ -25,6 +26,8 @@ npm run apply
 
 - The managed `/Applications/Code.app` bundle, copied from `/Applications/Visual Studio Code.app`
   with display name `Code`.
+- The upstream `/Applications/Visual Studio Code.app` bundle patches, so launching either app shows
+  the same local terminal behavior.
 - VS Code user settings needed by these terminal workflows.
 - VS Code user keybindings for `Cmd+T`, `Cmd+W`, `Cmd+R`, and `Cmd+Shift+T`.
 - The `.zshrc` cwd-title hook for VS Code terminal tab titles.
@@ -32,14 +35,14 @@ npm run apply
 - The local VS Code extension symlink under `~/.vscode/extensions`.
 - The global `patch-vscode-terminal-order` wrapper.
 - The global `patch-vscode-ime-guard` wrapper.
-- The managed `Code.app` workbench bundle/CSS patches, Claude Code title-menu patch, runtime Dock
-  icon patch, and app icon.
+- The `Code.app` and upstream VS Code workbench bundle/CSS patches, Claude Code title-menu patch,
+  runtime Dock icon patch, and app icon.
 
 The managed app intentionally shares the existing VS Code user data and extensions:
 `/Users/seongho/Library/Application Support/Code/User` and `~/.vscode/extensions`.
-It uses the separate local bundle id `com.seongho.Code`. Because the managed app is locally patched
-after being copied from VS Code, the patch sequence finishes by ad-hoc signing `/Applications/Code.app`
-so macOS does not treat the changed bundle as damaged.
+It uses the separate local bundle id `com.seongho.Code`. Because both app bundles are locally
+patched, the patch sequence finishes by ad-hoc signing `/Applications/Code.app` and
+`/Applications/Visual Studio Code.app` so macOS does not treat the changed bundles as damaged.
 
 The managed terminal settings keep VS Code's persistent terminal sessions enabled and set
 `terminal.integrated.persistentSessionReviveProcess` to `onExitAndWindowClose`, so normal VS Code
@@ -64,9 +67,9 @@ patch-vscode-terminal-order
 ```
 
 Run it again after manually updating VS Code. The global wrapper now refreshes `/Applications/Code.app`
-from the upstream VS Code app and runs all local workbench patches, including the IME composition
-guard described below. User setting `update.mode: none` is still managed so the shared VS Code
-profile does not silently update itself outside this flow.
+from the upstream VS Code app and runs all local workbench patches against both app bundles,
+including the IME composition guard described below. User setting `update.mode: none` is still
+managed so the shared VS Code profile does not silently update itself outside this flow.
 
 ## Persistent Terminal Revival
 
@@ -113,8 +116,7 @@ as `~/projects/dalpha/inf`, because several terminals can share the same cwd.
 ## VS Code App Icon
 
 This project keeps Warp's Glass Sky app icon source at `assets/warp-glass-sky.png`, stores the
-generated macOS icon at `assets/warp-glass-sky.icns`, and installs it over the managed `Code.app`
-app icon:
+generated macOS icon at `assets/warp-glass-sky.icns`, and installs it over both VS Code app icons:
 
 ```sh
 npm run patch:vscode-icon
@@ -126,11 +128,11 @@ The full patch command also applies it:
 patch-vscode-terminal-order
 ```
 
-Run it again after a VS Code update. The patch backs up the current `Code.icns` inside
-`/Applications/Code.app` before overwriting it. The patch does not apply a Finder custom icon by
-default because that writes resource-fork/FinderInfo metadata that prevents the managed app from
-being ad-hoc signed. For the running Dock tile, the full patch command patches `Code.app`'s Electron
-main bundle so startup calls `app.dock.setIcon(...)` with the managed PNG:
+Run it again after a VS Code update. The patch backs up the current `Code.icns` inside each target
+app before overwriting it. The patch does not apply a Finder custom icon by
+default because that writes resource-fork/FinderInfo metadata that prevents patched apps from
+being ad-hoc signed. For the running Dock tile, the full patch command patches each Electron main
+bundle so startup calls `app.dock.setIcon(...)` with the managed PNG:
 
 ```sh
 npm run patch:vscode-dock-icon
@@ -152,7 +154,29 @@ The full patch command also applies it:
 patch-vscode-terminal-order
 ```
 
-Run it again after a VS Code update. The patch backs up the current workbench CSS before appending the managed hide rule.
+Run it again after a VS Code update. The patch backs up the current workbench CSS before appending
+the managed hide rule to each target app.
+
+## Terminal Tabs Layout
+
+The integrated terminal tab list is locally patched to use multi-line rows with slightly roomier
+spacing. The workbench bundle patch raises the Monaco list row height from 22px to 68px, the title
+break patch turns each `|` separator into a line break, and the workbench CSS patch lets the label
+use up to three lines with centered alignment, 19px line height, and natural letter spacing:
+
+```sh
+npm run patch:vscode-terminal-tabs-layout
+```
+
+The full patch command also applies it:
+
+```sh
+patch-vscode-terminal-order
+```
+
+Long Codex titles always break at `|` separators, and the separator itself is hidden. Spaces inside
+a segment are kept together, so labels like `Fast on` do not split into `Fast` and `on`. Fully quit
+and reopen VS Code after applying this patch.
 
 ## Korean IME Composition Guard
 
@@ -209,15 +233,16 @@ Video file detection runs before image detection because Finder can expose previ
 If the clipboard contains an image flavor such as PNG, TIFF, JPEG, GIF, or HEIC, it sends `Ctrl+V` (`\x16`) to the active terminal so Codex can handle image paste.
 Otherwise it delegates to VS Code's normal `workbench.action.terminal.paste`, so text paste stays unchanged.
 
-## Cwd-Based Terminal Icon Color
+## Cwd-Based Terminal Tab Color
 
-The extension watches shell integration cwd changes for the active terminal and updates the terminal tab icon color.
+The extension watches shell integration cwd changes for the active terminal and updates the terminal tab color.
 
 Color resolution order:
 
 1. A manually selected terminal tab color is stored as an exact `cwd -> color` mapping and reused for that cwd.
 2. Optional `codexTerminal.cwdColorRules` path-prefix rules can override hash colors.
-3. If no mapping exists, the cwd is hashed into a stable ANSI color, so the same path gets the same color every time.
+3. A previously generated automatic fallback color is reused from extension global state.
+4. If no mapping exists, the cwd is hashed into a stable ANSI color, stored, and reused for that path.
 
 Optional path-prefix overrides:
 
@@ -229,7 +254,7 @@ Optional path-prefix overrides:
 
 Longest matching path prefix wins, and path segment boundaries are respected.
 
-VS Code's public extension API only accepts a terminal icon color at terminal creation time, so this machine also patches `workbench.action.terminal.changeColorActiveTab` to accept a color argument from this extension. It patches both `workbench.action.terminal.changeColor` and `workbench.action.terminal.changeColorActiveTab` to report manual selections back to the extension. Re-run the same patch command after VS Code updates.
+VS Code's public extension API does not let extensions update an existing terminal's tab color directly, so this machine also patches `workbench.action.terminal.changeColorActiveTab` to accept a color argument from this extension. Automatically generated fallback colors are stored separately from manual cwd color selections. Re-run the same patch command after VS Code updates.
 
 ## Rename Current Codex Thread
 

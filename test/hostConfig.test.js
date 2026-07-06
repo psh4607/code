@@ -7,6 +7,7 @@ const {
   applyHostConfig,
   checkVscodeDockIconPatch,
   checkVscodeIconPatch,
+  checkVscodeTerminalTabsLayoutPatch,
   checkVscodeWatermarkPatch,
   checkWorkbenchPatches,
   checkHostConfig,
@@ -21,7 +22,7 @@ const {
   parseJsonc,
 } = require('../src/hostConfig');
 
-test('createDefaultPaths targets the managed Code app for bundle patches', () => {
+test('createDefaultPaths targets managed Code and upstream VS Code bundle patches', () => {
   const paths = createDefaultPaths({ home: '/tmp/home', projectRoot: '/tmp/project' });
 
   assert.equal(paths.vscodeSourceAppPath, '/Applications/Visual Studio Code.app');
@@ -39,6 +40,26 @@ test('createDefaultPaths targets the managed Code app for bundle patches', () =>
   assert.equal(
     paths.vscodeDockIconPngPath,
     '/Applications/Code.app/Contents/Resources/codex-warp-glass-sky.png',
+  );
+  assert.equal(
+    paths.sourceWorkbenchPath,
+    '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
+  );
+  assert.equal(
+    paths.sourceWorkbenchCssPath,
+    '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css',
+  );
+  assert.equal(
+    paths.sourceMainPath,
+    '/Applications/Visual Studio Code.app/Contents/Resources/app/out/main.js',
+  );
+  assert.equal(
+    paths.sourceVscodeIconPath,
+    '/Applications/Visual Studio Code.app/Contents/Resources/Code.icns',
+  );
+  assert.equal(
+    paths.sourceVscodeDockIconPngPath,
+    '/Applications/Visual Studio Code.app/Contents/Resources/codex-warp-glass-sky.png',
   );
 });
 
@@ -397,6 +418,7 @@ test('checkHostConfig reports managed files as ok', () => {
     checkVscodeIcon: false,
     checkDockIcon: false,
     checkWatermark: false,
+    checkTerminalTabsLayout: false,
   });
 
   assert.deepEqual(
@@ -414,6 +436,59 @@ test('checkHostConfig reports managed files as ok', () => {
   );
 });
 
+test('checkHostConfig includes managed and upstream bundle patch statuses', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
+  const paths = {
+    home: path.join(tmpDir, 'home'),
+    projectRoot: path.join(tmpDir, 'project'),
+    userSettingsPath: path.join(tmpDir, 'settings.json'),
+    userKeybindingsPath: path.join(tmpDir, 'keybindings.json'),
+    zshrcPath: path.join(tmpDir, '.zshrc'),
+    codexConfigPath: path.join(tmpDir, 'config.toml'),
+    codexHooksPath: path.join(tmpDir, 'hooks.json'),
+    extensionPath: path.join(tmpDir, 'extension'),
+    wrapperPath: path.join(tmpDir, 'patch-vscode-terminal-order'),
+    imeWrapperPath: path.join(tmpDir, 'patch-vscode-ime-guard'),
+    workbenchPath: path.join(tmpDir, 'managed-workbench.js'),
+    sourceWorkbenchPath: path.join(tmpDir, 'upstream-workbench.js'),
+    workbenchCssPath: path.join(tmpDir, 'managed-workbench.css'),
+    sourceWorkbenchCssPath: path.join(tmpDir, 'upstream-workbench.css'),
+    mainPath: path.join(tmpDir, 'managed-main.js'),
+    sourceMainPath: path.join(tmpDir, 'upstream-main.js'),
+    vscodeIconSourcePath: path.join(tmpDir, 'warp-glass-sky.icns'),
+    vscodeIconPath: path.join(tmpDir, 'managed-Code.icns'),
+    sourceVscodeIconPath: path.join(tmpDir, 'upstream-Code.icns'),
+    vscodeIconPngSourcePath: path.join(tmpDir, 'warp-glass-sky.png'),
+    vscodeDockIconPngPath: path.join(tmpDir, 'managed-dock-icon.png'),
+    sourceVscodeDockIconPngPath: path.join(tmpDir, 'upstream-dock-icon.png'),
+    vscodeAppPath: path.join(tmpDir, 'Code.app'),
+    vscodeSourceAppPath: path.join(tmpDir, 'Visual Studio Code.app'),
+    claudeExtensionsDir: path.join(tmpDir, 'claude'),
+  };
+
+  const statuses = checkHostConfig({
+    paths,
+    checkManagedCodeApp: false,
+    checkClaude: false,
+  });
+  const byId = Object.fromEntries(statuses.map((status) => [status.id, status]));
+
+  for (const id of [
+    'workbench',
+    'upstreamWorkbench',
+    'vscodeIcon',
+    'upstreamVscodeIcon',
+    'dockIcon',
+    'upstreamDockIcon',
+    'watermark',
+    'upstreamWatermark',
+    'terminalTabsLayout',
+    'upstreamTerminalTabsLayout',
+  ]) {
+    assert.equal(byId[id].ok, false, id);
+  }
+});
+
 test('checkWorkbenchPatches requires the IME terminal sendSequence hooks', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
@@ -425,6 +500,9 @@ test('checkWorkbenchPatches requires the IME terminal sendSequence hooks', () =>
       'typeof t=="string"||t===null',
       'this._terminalGroupService.instances.length-1,I=this._terminalGroupService.instances[S]',
       'this._register($(this._tabListDomElement,"mousedown",async o=>{if(o.button!==0)return',
+      'super("TerminalTabsList",e,{getHeight:()=>68,getTemplateId:()=>"terminal.tabs"}',
+      'paddingBottom:68,dnd:l.createInstance(pft)',
+      '__codexVscodeTerminalTabTitleBreaks',
       '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */',
       '_dispatch(e,t){let o=this.resolveKeyboardEvent(e),n=globalThis.__codexVscodeImeGuard?.defer?.(e,t,()=>this._doDispatch(o,t,!1));return n!==void 0?n:this._doDispatch(o,t,!1)}',
     ].join('\n'),
@@ -540,6 +618,57 @@ test('checkVscodeWatermarkPatch reports whether the empty editor logo is hidden'
   assert.deepEqual(checkVscodeWatermarkPatch(cssPath), {
     ok: true,
     detail: 'empty editor watermark logo is hidden',
+  });
+});
+
+test('checkVscodeTerminalTabsLayoutPatch reports whether terminal tabs use multi-line wrapping', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
+  const cssPath = path.join(tmpDir, 'workbench.desktop.main.css');
+
+  assert.deepEqual(checkVscodeTerminalTabsLayoutPatch(cssPath), {
+    ok: false,
+    detail: 'VS Code workbench CSS missing',
+  });
+
+  fs.writeFileSync(
+    cssPath,
+    '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry{text-align:center}',
+  );
+  assert.deepEqual(checkVscodeTerminalTabsLayoutPatch(cssPath), {
+    ok: false,
+    detail: 'terminal tabs layout patch missing',
+  });
+
+  fs.writeFileSync(
+    cssPath,
+    [
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry{text-align:center}',
+      '/* codex-vscode-terminal-tools: terminal-tabs-two-line-layout. Reapply with patch-vscode-terminal-tabs-layout. */',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:auto!important;line-height:19px!important;}',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;}',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(checkVscodeTerminalTabsLayoutPatch(cssPath), {
+    ok: false,
+    detail: 'terminal tabs layout patch missing',
+  });
+
+  fs.writeFileSync(
+    cssPath,
+    [
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry{text-align:center}',
+      '/* codex-vscode-terminal-tools: terminal-tabs-two-line-layout. Reapply with patch-vscode-terminal-tabs-layout. */',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;}',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;}',
+      '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(checkVscodeTerminalTabsLayoutPatch(cssPath), {
+    ok: true,
+    detail: 'terminal tabs use multi-line wrapping layout',
   });
 });
 

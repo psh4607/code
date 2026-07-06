@@ -76,11 +76,25 @@ const vscode127OriginalTabsNativeEmptyClick =
 const vscode127PatchedTabsNativeEmptyClick =
   'this._register($(this._tabContainer,"drop",o=>{this._shouldHandleEmptyAreaDrop(o)&&this._handleContainerDrop(o)})),this._register($(this._tabListDomElement,"mousedown",async o=>{if(o.button!==0)return;let n=o.target;if(n?.closest?.(".monaco-list-row,.terminal-tabs-chat-entry"))return;let r=this._terminalGroupService.instances.length-1,s=this._terminalGroupService.instances[r];s&&(this._terminalGroupService.setActiveInstance(s),this._tabList.setSelection([r]),this._tabList.setFocus([r]),this._tabList.reveal(r),o.preventDefault(),o.stopPropagation(),await s.focusWhenReady())})),this._register($(this._tabListDomElement,"click",o=>{if(o.button!==0)return;let n=o.target;if(n?.closest?.(".monaco-list-row,.terminal-tabs-chat-entry"))return;o.preventDefault(),o.stopPropagation(),setTimeout(async()=>{let r=this._terminalGroupService.instances.length-1,s=this._terminalGroupService.instances[r];s&&(this._terminalGroupService.setActiveInstance(s),this._tabList.setSelection([r]),this._tabList.setFocus([r]),this._tabList.reveal(r),await s.focusWhenReady())},0)})),this._register($(t,"mousedown",async o=>{';
 
+const vscode127OriginalTerminalTabsListHeight =
+  'super("TerminalTabsList",e,{getHeight:()=>22,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:22,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+
+const vscode127LegacyPatchedTerminalTabsListHeight =
+  'super("TerminalTabsList",e,{getHeight:()=>44,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:44,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+
+const vscode127PatchedTerminalTabsListHeight =
+  'super("TerminalTabsList",e,{getHeight:()=>68,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:68,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+
+function terminalTabsListHeightFixture(marker) {
+  return `class Vce extends ml{constructor(e,t,o,n,r,s,c,l,u,p,m,g,f){${marker};this._configurationService=n}}`;
+}
+
 function patchedTabsEmptyAreaMarkers() {
   return [
     vscode127PatchedTabsEmptyDoubleClick,
     vscode127PatchedTabsEmptyClick,
     `${vscode127PatchedTabsNativeEmptyClick}return}))`,
+    terminalTabsListHeightFixture(vscode127PatchedTerminalTabsListHeight),
   ];
 }
 
@@ -188,6 +202,7 @@ test('patch script supports VS Code 1.127 terminal tab empty-area focus markers'
     vscode127OriginalTabsEmptyDoubleClick,
     vscode127OriginalTabsEmptyClick,
     `${vscode127OriginalTabsNativeEmptyClick}return}))`,
+    terminalTabsListHeightFixture(vscode127OriginalTerminalTabsListHeight),
   ].join('\n');
   fs.writeFileSync(workbenchPath, source);
 
@@ -198,7 +213,129 @@ test('patch script supports VS Code 1.127 terminal tab empty-area focus markers'
   assert.equal(nextSource.includes(vscode127PatchedTabsEmptyDoubleClick), true);
   assert.equal(nextSource.includes(vscode127PatchedTabsEmptyClick), true);
   assert.equal(nextSource.includes(vscode127PatchedTabsNativeEmptyClick), true);
+  assert.equal(nextSource.includes(vscode127PatchedTerminalTabsListHeight), true);
   assert.equal(nextSource.includes('createTerminal({location:1});this._terminalGroupService.setActiveInstance(S)'), false);
+});
+
+test('patch script supports VS Code 1.127 multi-line terminal tab row height marker', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  const source = [
+    'class TerminalGroups {',
+    patchedUnsplit,
+    '}',
+    'function Kr(){}',
+    'const wr={changeColor:""};',
+    'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
+    'function mft(){}',
+    'function Bqe(){return[]}',
+    vscode127PatchedChangeColor,
+    vscode127PatchedChangeColorActiveTab,
+    vscode127PatchedTabsEmptyDoubleClick,
+    vscode127PatchedTabsEmptyClick,
+    `${vscode127PatchedTabsNativeEmptyClick}return}))`,
+    terminalTabsListHeightFixture(vscode127OriginalTerminalTabsListHeight),
+  ].join('\n');
+  fs.writeFileSync(workbenchPath, source);
+
+  const result = runPatchScript({ workbenchPath, tmpDir });
+
+  assert.equal(result.status, 0, result.stderr);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.equal(nextSource.includes(vscode127PatchedTerminalTabsListHeight), true);
+  assert.equal(nextSource.includes('getHeight:()=>22'), false);
+  assert.equal(nextSource.includes('paddingBottom:22'), false);
+});
+
+test('patch script upgrades the previous 44px terminal tab row height', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  const source = [
+    'class TerminalGroups {',
+    patchedUnsplit,
+    '}',
+    'function Kr(){}',
+    'const wr={changeColor:""};',
+    'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
+    'function mft(){}',
+    'function Bqe(){return[]}',
+    vscode127PatchedChangeColor,
+    vscode127PatchedChangeColorActiveTab,
+    vscode127PatchedTabsEmptyDoubleClick,
+    vscode127PatchedTabsEmptyClick,
+    `${vscode127PatchedTabsNativeEmptyClick}return}))`,
+    terminalTabsListHeightFixture(vscode127LegacyPatchedTerminalTabsListHeight),
+  ].join('\n');
+  fs.writeFileSync(workbenchPath, source);
+
+  const result = runPatchScript({ workbenchPath, tmpDir });
+
+  assert.equal(result.status, 0, result.stderr);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.equal(nextSource.includes(vscode127LegacyPatchedTerminalTabsListHeight), false);
+  assert.equal(nextSource.includes(vscode127PatchedTerminalTabsListHeight), true);
+});
+
+test('patch script upgrades the previous 48px terminal tab row height', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  const legacy48 =
+    'super("TerminalTabsList",e,{getHeight:()=>48,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:48,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+  const source = [
+    'class TerminalGroups {',
+    patchedUnsplit,
+    '}',
+    'function Kr(){}',
+    'const wr={changeColor:""};',
+    'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
+    'function mft(){}',
+    'function Bqe(){return[]}',
+    vscode127PatchedChangeColor,
+    vscode127PatchedChangeColorActiveTab,
+    vscode127PatchedTabsEmptyDoubleClick,
+    vscode127PatchedTabsEmptyClick,
+    `${vscode127PatchedTabsNativeEmptyClick}return}))`,
+    terminalTabsListHeightFixture(legacy48),
+  ].join('\n');
+  fs.writeFileSync(workbenchPath, source);
+
+  const result = runPatchScript({ workbenchPath, tmpDir });
+
+  assert.equal(result.status, 0, result.stderr);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.equal(nextSource.includes(legacy48), false);
+  assert.equal(nextSource.includes(vscode127PatchedTerminalTabsListHeight), true);
+});
+
+test('patch script upgrades the previous 64px terminal tab row height', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  const legacy64 =
+    'super("TerminalTabsList",e,{getHeight:()=>64,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:64,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
+  const source = [
+    'class TerminalGroups {',
+    patchedUnsplit,
+    '}',
+    'function Kr(){}',
+    'const wr={changeColor:""};',
+    'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
+    'function mft(){}',
+    'function Bqe(){return[]}',
+    vscode127PatchedChangeColor,
+    vscode127PatchedChangeColorActiveTab,
+    vscode127PatchedTabsEmptyDoubleClick,
+    vscode127PatchedTabsEmptyClick,
+    `${vscode127PatchedTabsNativeEmptyClick}return}))`,
+    terminalTabsListHeightFixture(legacy64),
+  ].join('\n');
+  fs.writeFileSync(workbenchPath, source);
+
+  const result = runPatchScript({ workbenchPath, tmpDir });
+
+  assert.equal(result.status, 0, result.stderr);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.equal(nextSource.includes(legacy64), false);
+  assert.equal(nextSource.includes(vscode127PatchedTerminalTabsListHeight), true);
 });
 
 test('patch script upgrades the previous programmatic color patch', () => {

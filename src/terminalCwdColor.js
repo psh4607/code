@@ -1,5 +1,6 @@
 const DEFAULT_CWD_COLOR_RULES = [];
-const CWD_COLOR_STORAGE_KEY = 'cwdColorByPath';
+const MANUAL_CWD_COLOR_STORAGE_KEY = 'cwdColorByPath';
+const FALLBACK_CWD_COLOR_STORAGE_KEY = 'fallbackCwdColorByPath';
 const HASH_COLOR_PALETTE = [
   'terminal.ansiRed',
   'terminal.ansiGreen',
@@ -98,25 +99,69 @@ function createTerminalCwdColorManager(vscode, options = {}) {
   const pendingUpdates = new Set();
   let started = false;
 
-  function getStoredColorByPath() {
-    return context?.globalState?.get(CWD_COLOR_STORAGE_KEY, {}) ?? {};
+  function getStoredManualColorByPath() {
+    return context?.globalState?.get(MANUAL_CWD_COLOR_STORAGE_KEY, {}) ?? {};
+  }
+
+  function getStoredFallbackColorByPath() {
+    return context?.globalState?.get(FALLBACK_CWD_COLOR_STORAGE_KEY, {}) ?? {};
+  }
+
+  function trackPendingUpdate(promise) {
+    pendingUpdates.add(promise);
+    promise.finally(() => pendingUpdates.delete(promise));
+    return promise;
+  }
+
+  function persistFallbackColor(normalizedCwd, color) {
+    if (!context?.globalState?.update || !normalizedCwd || !color) {
+      return;
+    }
+
+    const nextStoredFallbackColorByPath = {
+      ...getStoredFallbackColorByPath(),
+      [normalizedCwd]: color,
+    };
+
+    trackPendingUpdate(
+      Promise.resolve(
+        context.globalState.update(
+          FALLBACK_CWD_COLOR_STORAGE_KEY,
+          nextStoredFallbackColorByPath,
+        ),
+      ),
+    );
   }
 
   function resolveWindowFallbackColor(normalizedCwd) {
+    const storedFallbackColorByPath = getStoredFallbackColorByPath();
+    const storedColor = storedFallbackColorByPath[normalizedCwd];
+    if (storedColor) {
+      fallbackColorByPath.set(normalizedCwd, storedColor);
+      usedFallbackColors.add(storedColor);
+      return storedColor;
+    }
+
     if (fallbackColorByPath.has(normalizedCwd)) {
       return fallbackColorByPath.get(normalizedCwd);
     }
 
     const preferredColor = resolveHashColor(normalizedCwd);
     let color = preferredColor;
-    if (usedFallbackColors.has(color)) {
+    const reservedColors = new Set([
+      ...Object.values(storedFallbackColorByPath).filter(Boolean),
+      ...usedFallbackColors,
+    ]);
+
+    if (reservedColors.has(color)) {
       color =
-        HASH_COLOR_PALETTE.find((candidate) => !usedFallbackColors.has(candidate)) ??
+        HASH_COLOR_PALETTE.find((candidate) => !reservedColors.has(candidate)) ??
         preferredColor;
     }
 
     fallbackColorByPath.set(normalizedCwd, color);
     usedFallbackColors.add(color);
+    persistFallbackColor(normalizedCwd, color);
     return color;
   }
 
@@ -131,12 +176,15 @@ function createTerminalCwdColorManager(vscode, options = {}) {
       return;
     }
 
-    const nextStoredColorByPath = { ...getStoredColorByPath() };
+    const nextStoredColorByPath = { ...getStoredManualColorByPath() };
     for (const normalizedCwd of uniqueCwds) {
       nextStoredColorByPath[normalizedCwd] = color;
     }
 
-    await context?.globalState?.update(CWD_COLOR_STORAGE_KEY, nextStoredColorByPath);
+    await context?.globalState?.update(
+      MANUAL_CWD_COLOR_STORAGE_KEY,
+      nextStoredColorByPath,
+    );
     scheduleUpdate(vscode.window.activeTerminal);
   }
 
@@ -153,10 +201,15 @@ function createTerminalCwdColorManager(vscode, options = {}) {
       return;
     }
 
-    const color = resolveCwdColor(cwd, getConfiguredRules(vscode), getStoredColorByPath(), {
-      hashFallback,
-      resolveFallbackColor: resolveWindowFallbackColor,
-    });
+    const color = resolveCwdColor(
+      cwd,
+      getConfiguredRules(vscode),
+      getStoredManualColorByPath(),
+      {
+        hashFallback,
+        resolveFallbackColor: resolveWindowFallbackColor,
+      },
+    );
     const previousColor = appliedColorByTerminal.get(terminal);
     const nextColor = color ?? null;
 

@@ -22,6 +22,16 @@ const expectedDefaults = [
     '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css',
   ],
   [
+    'scripts/patch-vscode-terminal-tabs-layout.js',
+    'VSCODE_WORKBENCH_CSS',
+    '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css',
+  ],
+  [
+    'scripts/patch-vscode-terminal-tabs-title-breaks.js',
+    'VSCODE_WORKBENCH_MAIN',
+    '/Applications/Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
+  ],
+  [
     'scripts/patch-vscode-icon.js',
     'VSCODE_ICON_PATH',
     '/Applications/Code.app/Contents/Resources/Code.icns',

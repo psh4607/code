@@ -11,7 +11,12 @@ function wait(ms) {
   });
 }
 
-function createFakeVscode({ activeTerminal, rules, storedColors } = {}) {
+function createFakeVscode({
+  activeTerminal,
+  rules,
+  storedColors,
+  storedFallbackColors,
+} = {}) {
   const commands = [];
   const endExecutionListeners = [];
   const shellIntegrationListeners = [];
@@ -19,6 +24,7 @@ function createFakeVscode({ activeTerminal, rules, storedColors } = {}) {
   const globalState = {
     values: {
       cwdColorByPath: storedColors ?? {},
+      fallbackCwdColorByPath: storedFallbackColors ?? {},
     },
     get(key, fallback) {
       return this.values[key] ?? fallback;
@@ -126,7 +132,7 @@ test('resolveCwdColor does not match partial path segment prefixes', () => {
   );
 });
 
-test('manager updates the active terminal icon color when cwd changes', async () => {
+test('manager updates the active terminal tab color when cwd changes', async () => {
   const activeTerminal = terminalWithCwd('/Users/seongho/projects/dalpha/inf');
   const fake = createFakeVscode({
     activeTerminal,
@@ -172,7 +178,50 @@ test('manager assigns unique fallback colors to the first six distinct cwds', as
   assert.equal(new Set(colors).size, 6);
 });
 
-test('manager resets a previously applied icon color when cwd no longer matches', async () => {
+test('manager persists automatic fallback colors by cwd', async () => {
+  const activeTerminal = terminalWithCwd('/tmp/persisted-fallback-cwd');
+  const fake = createFakeVscode({
+    activeTerminal,
+    rules: [],
+  });
+  const manager = createTerminalCwdColorManager(fake.vscode, {
+    context: { globalState: fake.globalState },
+    scheduleDelayMs: 0,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  const [[, color]] = fake.commands;
+  assert.match(color, /^terminal\.ansi[A-Z]/);
+  assert.deepEqual(fake.globalState.values.fallbackCwdColorByPath, {
+    '/tmp/persisted-fallback-cwd': color,
+  });
+});
+
+test('manager reuses persisted automatic fallback colors after restart', async () => {
+  const activeTerminal = terminalWithCwd('/tmp/restored-fallback-cwd');
+  const fake = createFakeVscode({
+    activeTerminal,
+    rules: [],
+    storedFallbackColors: {
+      '/tmp/restored-fallback-cwd': 'terminal.ansiWhite',
+    },
+  });
+  const manager = createTerminalCwdColorManager(fake.vscode, {
+    context: { globalState: fake.globalState },
+    scheduleDelayMs: 0,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.deepEqual(fake.commands, [
+    ['workbench.action.terminal.changeColorActiveTab', 'terminal.ansiWhite'],
+  ]);
+});
+
+test('manager resets a previously applied terminal tab color when cwd no longer matches', async () => {
   const activeTerminal = terminalWithCwd('/Users/seongho/projects/dalpha/inf');
   const fake = createFakeVscode({
     activeTerminal,
