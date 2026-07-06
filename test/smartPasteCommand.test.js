@@ -34,7 +34,7 @@ function createFakeVscode({ terminal = true } = {}) {
   };
 }
 
-test('smart paste sends Ctrl+V to the active terminal when the clipboard has an image', async () => {
+test('smart paste delegates image clipboard paste to VS Code terminal paste', async () => {
   const fake = createFakeVscode();
 
   await createSmartPasteCommand(fake.vscode, {
@@ -46,8 +46,8 @@ test('smart paste sends Ctrl+V to the active terminal when the clipboard has an 
     },
   })();
 
-  assert.deepEqual(fake.sent, [['\x16', false]]);
-  assert.deepEqual(fake.executedCommands, []);
+  assert.deepEqual(fake.sent, []);
+  assert.deepEqual(fake.executedCommands, ['workbench.action.terminal.paste']);
 });
 
 test('smart paste inserts a shell-quoted path when the clipboard has a video file', async () => {
