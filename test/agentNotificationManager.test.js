@@ -98,7 +98,7 @@ function terminalWithPid(pid) {
 }
 
 test('manager polls JSONL events, updates status bar, and presents new unread notifications', async () => {
-  const fake = createFakeVscode();
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const manager = createAgentNotificationManager(fake.vscode, {
     eventsPath: '/tmp/events.jsonl',
     pollIntervalMs: 0,
@@ -117,7 +117,7 @@ test('manager polls JSONL events, updates status bar, and presents new unread no
 });
 
 test('manager does not present the same event twice across polls', async () => {
-  const fake = createFakeVscode();
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const source = `${JSON.stringify(event())}\n`;
   const manager = createAgentNotificationManager(fake.vscode, {
     eventsPath: '/tmp/events.jsonl',
@@ -212,8 +212,47 @@ test('manager falls back to the Codex session registry when the event pid is sta
   assert.equal(terminal.preserveFocus, false);
 });
 
+test('manager delays targeted notifications until this window can resolve the terminal', async () => {
+  const terminals = [];
+  const terminal = terminalWithPid(4321);
+  const fake = createFakeVscode({ terminals });
+  const source = `${JSON.stringify(event({ terminalPid: undefined }))}\n`;
+  const manager = createAgentNotificationManager(fake.vscode, {
+    context: fake.context,
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => source,
+    readSessionRegistry: () => ({
+      version: 1,
+      records: [
+        {
+          sessionId: 'session-1',
+          terminalPid: 4321,
+          cwd: '/tmp/project',
+          hookEventName: 'SessionStart',
+          updatedAt: 900,
+        },
+      ],
+    }),
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.equal(fake.informationMessages.length, 0);
+  assert.equal(manager._store.unreadCount(), 0);
+  assert.equal(fake.statusBarItems[0].visible, false);
+
+  terminals.push(terminal);
+  await manager.flush();
+
+  assert.equal(fake.informationMessages.length, 1);
+  assert.equal(manager._store.latestUnread().terminalPid, 4321);
+  assert.equal(fake.statusBarItems[0].visible, true);
+});
+
 test('manager quick pick lists recent records and clear removes status', async () => {
-  const fake = createFakeVscode();
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const manager = createAgentNotificationManager(fake.vscode, {
     eventsPath: '/tmp/events.jsonl',
     pollIntervalMs: 0,
@@ -232,7 +271,7 @@ test('manager quick pick lists recent records and clear removes status', async (
 });
 
 test('manager formats rich notification messages with status, project, and action detail', async () => {
-  const fake = createFakeVscode();
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const manager = createAgentNotificationManager(fake.vscode, {
     eventsPath: '/tmp/events.jsonl',
     pollIntervalMs: 0,
@@ -282,7 +321,7 @@ test('manager restores unread records from global state without replaying seen e
 });
 
 test('manager persists records and seen event ids as notifications change', async () => {
-  const fake = createFakeVscode();
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const manager = createAgentNotificationManager(fake.vscode, {
     context: fake.context,
     eventsPath: '/tmp/events.jsonl',

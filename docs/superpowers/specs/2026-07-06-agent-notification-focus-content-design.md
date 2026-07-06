@@ -20,6 +20,10 @@ pick inbox, and terminal focus.
 - Terminal focus first tries the event `terminalPid`.
 - If that pid is missing or stale, terminal focus falls back to the Codex session
   registry using the notification `sessionId`.
+- Because the notification event log is global across VS Code windows, a targeted
+  notification is only stored and presented in a window that can resolve the
+  matching terminal. Other windows retry on later polls instead of showing an
+  `Open Terminal` action that cannot move anywhere.
 - A successful open calls `terminal.show(false)` so VS Code makes the matching
   terminal active instead of merely revealing the terminal panel.
 - Notifications use a shared summary format: `<kind> - <project> - <title>`.

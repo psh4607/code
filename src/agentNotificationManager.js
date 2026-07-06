@@ -218,8 +218,9 @@ function createAgentNotificationManager(vscode, {
       return undefined;
     }
     for (const terminal of uniqueTerminals(vscode)) {
-      if (expectedPids.includes(await terminalPid(terminal))) {
-        return terminal;
+      const processId = await terminalPid(terminal);
+      if (expectedPids.includes(processId)) {
+        return { terminal, processId };
       }
     }
     return undefined;
@@ -234,11 +235,11 @@ function createAgentNotificationManager(vscode, {
   }
 
   async function openRecord(record) {
-    const terminal = await findTerminalForRecord(record);
-    if (!terminal) {
+    const terminalMatch = await findTerminalForRecord(record);
+    if (!terminalMatch) {
       return false;
     }
-    terminal.show(false);
+    terminalMatch.terminal.show(false);
     if (notificationStore.markRead(record.id)) {
       persistState();
     }
@@ -266,9 +267,19 @@ function createAgentNotificationManager(vscode, {
     if (seenEventIds.has(event.id)) {
       return;
     }
+    const isTargetedEvent = Boolean(event.terminalPid || event.sessionId);
+    const terminalMatch = isTargetedEvent
+      ? await findTerminalForRecord(event)
+      : undefined;
+    if (isTargetedEvent && !terminalMatch) {
+      return;
+    }
+    const resolvedEvent = terminalMatch?.processId && event.terminalPid !== terminalMatch.processId
+      ? { ...event, terminalPid: terminalMatch.processId }
+      : event;
     seenEventIds.add(event.id);
-    const result = notificationStore.ingestEvent(event, {
-      isActiveTerminalFocused: await isActiveFocusedRecord(event),
+    const result = notificationStore.ingestEvent(resolvedEvent, {
+      isActiveTerminalFocused: await isActiveFocusedRecord(resolvedEvent),
     });
     persistState();
     updateStatusBar();
