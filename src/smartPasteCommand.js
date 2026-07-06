@@ -1,7 +1,6 @@
 const childProcess = require('node:child_process');
 const path = require('node:path');
 
-const CTRL_V = '\x16';
 const DEFAULT_TERMINAL_PASTE_COMMAND = 'workbench.action.terminal.paste';
 const VIDEO_FILE_EXTENSIONS = new Set([
   '.3gp',
@@ -133,7 +132,7 @@ function createSmartPasteCommand(
     }
 
     if (clipboardHasImage && vscode.window.activeTerminal) {
-      vscode.window.activeTerminal.sendText(CTRL_V, false);
+      await vscode.commands.executeCommand(terminalPasteCommand);
       return;
     }
 

@@ -273,7 +273,7 @@ The extension binds `Cmd+V` in the integrated terminal to `codexTerminal.smartPa
 On macOS it checks clipboard type metadata with `osascript -e 'clipboard info'`.
 If the clipboard contains a copied video file such as `.mov`, `.mp4`, `.mkv`, or `.webm`, it reads the clipboard file URL and inserts the shell-quoted POSIX path into the active terminal without pressing Enter.
 Video file detection runs before image detection because Finder can expose preview image flavors for copied media files.
-If the clipboard contains an image flavor such as PNG, TIFF, JPEG, GIF, or HEIC, it sends `Ctrl+V` (`\x16`) to the active terminal so Codex can handle image paste.
+If the clipboard contains an image flavor such as PNG, TIFF, JPEG, GIF, or HEIC, it delegates to VS Code's terminal paste command so Codex receives the normal image paste path.
 Otherwise it delegates to VS Code's normal `workbench.action.terminal.paste`, so text paste stays unchanged.
 
 ## Cwd-Based Terminal Tab Color
