@@ -187,12 +187,16 @@ the managed opaque overlay rules to each target app.
 VS Code can draw the Command Center and agent status controls across the middle of the titlebar.
 This machine disables the Command Center and uses that center title text for compact active
 workspace context instead. The extension publishes `${codexTitlebarInfo}` from the active
-editor's workspace folder, the current Git branch, and the current GitHub PR when `gh pr view`
-can resolve one, for example:
+terminal's shell-integration cwd when available, falling back to the active editor's workspace
+folder. It shows the matched workspace folder, current Git branch, and current GitHub PR when
+`gh pr view` can resolve one, for example:
 
 ```text
 inf | main | PR #123
 ```
+
+GitHub PR lookups are cached for five minutes per repo and branch, so terminal focus changes and
+periodic refreshes do not call `gh pr view` on every titlebar update.
 
 The local CSS patch still hides the agent status controls while leaving the rest of the workbench
 intact:
