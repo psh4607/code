@@ -7,6 +7,7 @@ const CODEX_SESSION_RESUME_STORAGE_KEY = 'codexTerminal.codexSessionResume.recor
 const DEFAULT_STARTUP_DELAY_MS = 1000;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 3000;
 const DEFAULT_RESUME_CONFIRMATION_GRACE_MS = 5000;
+const DEFAULT_STARTUP_RESTORE_WINDOW_MS = 60_000;
 const DEFAULT_SESSION_REGISTRY_PATH = path.join(
   os.homedir(),
   '.codex',
@@ -516,6 +517,8 @@ function createCodexSessionResumeManager(vscode, options = {}) {
   const snapshotIntervalMs = options.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
   const resumeConfirmationGraceMs =
     options.resumeConfirmationGraceMs ?? DEFAULT_RESUME_CONFIRMATION_GRACE_MS;
+  const startupRestoreWindowMs =
+    options.startupRestoreWindowMs ?? DEFAULT_STARTUP_RESTORE_WINDOW_MS;
   const log = options.log ?? console;
 
   const disposables = [];
@@ -524,6 +527,8 @@ function createCodexSessionResumeManager(vscode, options = {}) {
   let interval;
   let startupTimeout;
   let started = false;
+  let startupRestoreStartedAt;
+  let startupRestoreTerminals;
 
   async function readRecords() {
     return normalizeRecords(await storage.getRecords());
@@ -549,6 +554,25 @@ function createCodexSessionResumeManager(vscode, options = {}) {
       log.warn?.('Failed to verify saved Codex session before resume', error);
       return true;
     }
+  }
+
+  function isStartupRestoreTerminal(terminal) {
+    if (!started || !startupRestoreTerminals) {
+      return true;
+    }
+
+    if (!startupRestoreTerminals.has(terminal)) {
+      return false;
+    }
+
+    if (
+      startupRestoreStartedAt === undefined ||
+      !Number.isFinite(startupRestoreWindowMs)
+    ) {
+      return true;
+    }
+
+    return now() - startupRestoreStartedAt <= startupRestoreWindowMs;
   }
 
   function track(task) {
@@ -805,16 +829,21 @@ function createCodexSessionResumeManager(vscode, options = {}) {
       const title = getTerminalTitle(terminal);
       const processId = await getTerminalPid(terminal);
       const titleSessionId = extractCodexSessionId(title);
+      const canUseStoredRestore = isStartupRestoreTerminal(terminal);
       const registryRecord = findSessionRegistryRecordForTerminal(
         registryRecords,
         terminal,
         processId,
       );
-      const matchedRecord = findRecordForRestoredTerminal(terminal, terminalIndex, records);
+      const matchedRecord = canUseStoredRestore
+        ? findRecordForRestoredTerminal(terminal, terminalIndex, records)
+        : undefined;
       const titleIsResumeEvidence =
+        canUseStoredRestore &&
         titleSessionId &&
         (!matchedRecord || matchedRecord.codexProcessActive || matchedRecord.title !== title);
-      const registryIsResumeEvidence = Boolean(registryRecord?.sessionId);
+      const registryIsResumeEvidence =
+        canUseStoredRestore && Boolean(registryRecord?.sessionId);
       const record = titleIsResumeEvidence
         ? {
             ...(matchedRecord ?? {}),
@@ -933,6 +962,8 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     }
 
     started = true;
+    startupRestoreStartedAt = now();
+    startupRestoreTerminals = new Set(vscode.window.terminals || []);
 
     if (vscode.window.onDidOpenTerminal) {
       disposables.push(
@@ -1033,6 +1064,8 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     }
 
     started = false;
+    startupRestoreStartedAt = undefined;
+    startupRestoreTerminals = undefined;
   }
 
   return {

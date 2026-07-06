@@ -924,6 +924,87 @@ test('manager retries auto-resume when terminal process state arrives after star
   assert.deepEqual(terminal.sentText, [[`codex resume ${SESSION_ID_A}`, true]]);
 });
 
+test('manager does not auto-resume a new cwd-title terminal opened after startup', async () => {
+  const terminal = createTerminal({
+    name: '~/projects/dalpha/inf',
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
+    listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  fake.vscode.window.terminals.push(terminal);
+  fake.vscode.window.activeTerminal = terminal;
+  fake.listeners.openTerminal[0](terminal);
+  fake.listeners.shellIntegration[0]();
+  fake.listeners.terminalState[0]();
+  await manager.flush();
+  manager.dispose();
+
+  assert.deepEqual(terminal.sentText, []);
+});
+
+test('manager stops cwd-title auto-resume for startup terminals after the restore window', async () => {
+  let currentTime = 1000;
+  const terminal = createTerminal({
+    name: '~/projects/dalpha/inf',
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
+    listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
+    now: () => currentTime,
+    startTimers: false,
+    startupRestoreWindowMs: 1000,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  currentTime = 3001;
+  fake.listeners.terminalState[0]();
+  await manager.flush();
+  manager.dispose();
+
+  assert.deepEqual(terminal.sentText, []);
+});
+
 test('manager auto-resumes Codex sessions one second after startup by default', () => {
   const globalState = createGlobalState();
   const fake = createFakeVscode();
