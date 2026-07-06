@@ -15,6 +15,7 @@ const DEFAULT_SESSION_REGISTRY_PATH = path.join(
   'session-registry.json',
 );
 const DEFAULT_CODEX_HOME_PATH = path.join(os.homedir(), '.codex');
+const RENAME_TERMINAL_COMMAND = 'workbench.action.terminal.renameWithArg';
 const SESSION_ID_RE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
 
@@ -123,6 +124,33 @@ function isLikelyCwdTitle(title) {
     trimmed === '..' ||
     trimmed.startsWith('/') ||
     trimmed.startsWith('~/')
+  );
+}
+
+function isLikelyFallbackTitle(title) {
+  const trimmed = normalizeTitle(title).trim();
+  return isLikelyCwdTitle(trimmed) || /^\d+$/.test(trimmed);
+}
+
+function isRestorableTitle(title) {
+  const trimmed = normalizeTitle(title).trim();
+  return Boolean(trimmed) && !isLikelyFallbackTitle(trimmed);
+}
+
+function preserveRestorableTitle(currentTitle, previousTitle) {
+  const current = normalizeTitle(currentTitle);
+  const previous = normalizeTitle(previousTitle);
+  if (isLikelyFallbackTitle(current) && isRestorableTitle(previous)) {
+    return previous;
+  }
+  return current;
+}
+
+function shouldRestoreTerminalTitle(record, currentTitle) {
+  return (
+    isRestorableTitle(record?.title) &&
+    isLikelyFallbackTitle(currentTitle) &&
+    normalizeTitle(record.title) !== normalizeTitle(currentTitle)
   );
 }
 
@@ -419,7 +447,7 @@ function findRecordForTerminal(terminal, terminalIndex, records) {
     }
   }
 
-  if (isLikelyCwdTitle(title)) {
+  if (isLikelyFallbackTitle(title)) {
     return undefined;
   }
 
@@ -453,7 +481,7 @@ function createReservedRestoreSessionIds(terminals, records) {
 function findRelativeCwdRecordForRestoredTerminal(terminal, records, options = {}) {
   const cwd = getTerminalCwd(terminal);
   const title = getTerminalTitle(terminal);
-  if (!cwd || !isLikelyCwdTitle(title)) {
+  if (!cwd || !isLikelyFallbackTitle(title)) {
     return undefined;
   }
 
@@ -466,7 +494,7 @@ function findRelativeCwdRecordForRestoredTerminal(terminal, records, options = {
       terminalIndex,
       title: getTerminalTitle(candidate),
     }))
-    .filter((candidate) => candidate.cwd === cwd && isLikelyCwdTitle(candidate.title));
+    .filter((candidate) => candidate.cwd === cwd && isLikelyFallbackTitle(candidate.title));
   const terminalGroupIndex = terminalGroup.findIndex((candidate) => candidate.terminal === terminal);
   if (terminalGroup.length < 2 || terminalGroupIndex < 0) {
     return undefined;
@@ -502,7 +530,7 @@ function findRecordForRestoredTerminal(terminal, terminalIndex, records, options
 
   const title = getTerminalTitle(terminal);
   const cwd = getTerminalCwd(terminal);
-  if (!isLikelyCwdTitle(title) || !cwd) {
+  if (!isLikelyFallbackTitle(title) || !cwd) {
     return undefined;
   }
 
@@ -734,7 +762,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         processId,
         sessionId,
         terminalIndex,
-        title,
+        title: preserveRestorableTitle(title, existingRecord.title),
       };
 
       if (registryRecord?.sessionId === sessionId) {
@@ -799,7 +827,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
       processId,
       sessionId,
       terminalIndex,
-      title: getTerminalTitle(terminal),
+      title: preserveRestorableTitle(getTerminalTitle(terminal), existingRecord.title),
     };
 
     const nextRecords = records.filter((record) => record.sessionId !== sessionId);
@@ -835,6 +863,45 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     return Boolean(record?.sessionId && record.codexProcessActive);
   }
 
+  async function restoreTerminalTitleIfNeeded(record, terminal) {
+    const currentTitle = getTerminalTitle(terminal);
+    if (
+      !shouldRestoreTerminalTitle(record, currentTitle) ||
+      !vscode.commands?.executeCommand
+    ) {
+      return;
+    }
+
+    const previousActiveTerminal = vscode.window.activeTerminal;
+    const needsActivation = previousActiveTerminal !== terminal;
+    if (needsActivation) {
+      if (typeof terminal?.show !== 'function') {
+        return;
+      }
+      terminal.show(true);
+    }
+
+    try {
+      await vscode.commands.executeCommand(RENAME_TERMINAL_COMMAND, {
+        name: normalizeTitle(record.title),
+      });
+    } catch (error) {
+      log.warn?.('Failed to restore Codex terminal title', error);
+    } finally {
+      if (
+        needsActivation &&
+        previousActiveTerminal &&
+        typeof previousActiveTerminal.show === 'function'
+      ) {
+        try {
+          previousActiveTerminal.show(true);
+        } catch (error) {
+          log.warn?.('Failed to restore previously active terminal after title restore', error);
+        }
+      }
+    }
+  }
+
   function upsertRestoreDecisionRecord(
     records,
     record,
@@ -857,7 +924,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
       lastSeenAt: currentTime,
       sessionId: record.sessionId,
       terminalIndex,
-      title: getTerminalTitle(terminal),
+      title: preserveRestorableTitle(getTerminalTitle(terminal), record.title),
     };
     const existingIndex = records.findIndex(
       (candidate) => candidate.sessionId === record.sessionId,
@@ -884,6 +951,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     const terminals = vscode.window.terminals || [];
     const claimedSessionIds = new Set();
     const reservedSessionIds = createReservedRestoreSessionIds(terminals, records);
+    const titleRestoreRequests = [];
 
     for (const [terminalIndex, terminal] of terminals.entries()) {
       const title = getTerminalTitle(terminal);
@@ -915,7 +983,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
             cwd: getTerminalCwd(terminal),
             sessionId: titleSessionId,
             terminalIndex,
-            title,
+            title: preserveRestorableTitle(title, matchedRecord?.title),
           }
         : registryIsResumeEvidence
           ? {
@@ -925,7 +993,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
               processId,
               sessionId: registryRecord.sessionId,
               terminalIndex,
-              title,
+              title: preserveRestorableTitle(title, matchedRecord?.title),
             }
         : matchedRecord;
       if (!shouldResumeRecord(record)) {
@@ -940,6 +1008,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         continue;
       }
       claimedSessionIds.add(record.sessionId);
+      titleRestoreRequests.push({ record, terminal });
 
       if (resumedThisActivation.has(record.sessionId)) {
         upsertRestoreDecisionRecord(
@@ -1014,6 +1083,9 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     }
 
     await writeRecords(updatedRecords);
+    for (const { record, terminal } of titleRestoreRequests) {
+      await restoreTerminalTitleIfNeeded(record, terminal);
+    }
   }
 
   async function snapshotAndRestoreCodexSessions({ inspectProcesses = false } = {}) {

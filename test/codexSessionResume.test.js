@@ -58,6 +58,8 @@ function createFakeVscode({
   autoResume = true,
   startupDelayMs,
 } = {}) {
+  const executedCommands = [];
+  let activeTerminal = terminals[0];
   const listeners = {
     activeTerminal: [],
     endExecution: [],
@@ -68,8 +70,20 @@ function createFakeVscode({
   };
 
   return {
+    executedCommands,
     listeners,
     vscode: {
+      commands: {
+        async executeCommand(command, ...args) {
+          executedCommands.push([command, ...args]);
+          if (command === 'workbench.action.terminal.renameWithArg') {
+            const name = args[0]?.name;
+            if (name && activeTerminal) {
+              activeTerminal.name = name;
+            }
+          }
+        },
+      },
       workspace: {
         getConfiguration(section) {
           assert.equal(section, 'codexTerminal');
@@ -88,7 +102,9 @@ function createFakeVscode({
       },
       window: {
         terminals,
-        activeTerminal: terminals[0],
+        get activeTerminal() {
+          return activeTerminal;
+        },
         onDidChangeActiveTerminal(listener) {
           listeners.activeTerminal.push(listener);
           return { dispose() {} };
@@ -713,6 +729,55 @@ test('manager does not auto-resume when Codex is already alive under the termina
   await manager.restoreCodexSessions();
 
   assert.deepEqual(terminal.sentText, []);
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastRestoreDecision,
+    'skipped:codex-process-active',
+  );
+});
+
+test('manager restores the previous Codex title when reload leaves a live session with only the sequence title', async () => {
+  const restoredTitle = `inf | ${SESSION_ID_A} | Fast off`;
+  const terminal = createTerminal({
+    name: '1',
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: restoredTitle,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: `/opt/homebrew/bin/codex resume ${SESSION_ID_A}` },
+    ],
+    now: () => 1000,
+    startupDelayMs: 0,
+    clearTimeout: (handle) => clearTimeout(handle.id),
+    setInterval: () => ({ unref() {} }),
+    setTimeout: (callback, delayMs) => ({ id: setTimeout(callback, delayMs) }),
+  });
+
+  manager.start();
+  await manager.flush();
+  manager.dispose();
+
+  assert.deepEqual(terminal.sentText, []);
+  assert.deepEqual(fake.executedCommands, [
+    ['workbench.action.terminal.renameWithArg', { name: restoredTitle }],
+  ]);
+  assert.equal(terminal.name, restoredTitle);
+  assert.equal(globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].title, restoredTitle);
   assert.equal(
     globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastRestoreDecision,
     'skipped:codex-process-active',
