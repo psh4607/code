@@ -121,7 +121,7 @@ test('manager polls JSONL events, updates status bar, and presents new unread no
   assert.equal(fake.statusBarItems[0].visible, true);
   assert.equal(fake.statusBarItems[0].command, 'codexTerminal.showAgentNotifications');
   assert.deepEqual(fake.informationMessages.map((message) => message.message), [
-    'Complete - Codex finished\n/tmp/project - session session-1',
+    'Codex finished\nComplete - project - session session-1',
   ]);
 });
 
@@ -315,13 +315,35 @@ test('manager quick pick lists recent records and clear removes status', async (
   await manager.showAgentNotifications();
   assert.equal(fake.quickPicks[0][0].label, 'Codex finished');
   assert.equal(fake.quickPicks[0][0].description, 'Ready');
-  assert.equal(fake.quickPicks[0][0].detail, 'Complete - /tmp/project - session session-1');
+  assert.equal(fake.quickPicks[0][0].detail, 'Complete - project - session session-1');
 
   assert.equal(manager.clearAgentNotifications(), 1);
   assert.equal(fake.statusBarItems[0].visible, false);
 });
 
-test('manager formats rich notification messages with status, project, and action detail', async () => {
+test('manager formats completed notifications with the completed work as the title', async () => {
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event({
+      title: '알림 문구 개선',
+      subtitle: 'codex-vscode-terminal-tools',
+      sessionId: '019f36a5-abd6-7990-9cf1-04acf2836291',
+    }))}\n`,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.deepEqual(fake.informationMessages.map((message) => message.message), [
+    '알림 문구 개선\nComplete - codex-vscode-terminal-tools - session 019f36a5',
+  ]);
+  assert.match(fake.statusBarItems[0].tooltip, /알림 문구 개선/);
+  assert.match(fake.statusBarItems[0].tooltip, /Complete - codex-vscode-terminal-tools - session 019f36a5/);
+});
+
+test('manager formats rich notification messages with title, metadata, and action detail', async () => {
   const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const manager = createAgentNotificationManager(fake.vscode, {
     eventsPath: '/tmp/events.jsonl',
@@ -340,9 +362,10 @@ test('manager formats rich notification messages with status, project, and actio
   await manager.flush();
 
   assert.deepEqual(fake.informationMessages.map((message) => message.message), [
-    'Request - project - Codex needs permission\nBash: npm test',
+    'Codex needs permission\nRequest - project - session session-1\nBash: npm test',
   ]);
-  assert.match(fake.statusBarItems[0].tooltip, /Request - project - Codex needs permission/);
+  assert.match(fake.statusBarItems[0].tooltip, /Codex needs permission/);
+  assert.match(fake.statusBarItems[0].tooltip, /Request - project - session session-1/);
   assert.match(fake.statusBarItems[0].tooltip, /Bash: npm test/);
 });
 

@@ -93,11 +93,27 @@ function formatSessionShortId(record) {
   return record.sessionId.length <= 12 ? record.sessionId : record.sessionId.slice(0, 8);
 }
 
-function formatSummaryLine(record) {
+function formatProjectLabel(record) {
+  if (typeof record?.subtitle === 'string' && record.subtitle.trim()) {
+    return record.subtitle.trim();
+  }
+  if (typeof record?.cwd === 'string' && record.cwd.trim()) {
+    return path.basename(record.cwd) || record.cwd;
+  }
+  return undefined;
+}
+
+function formatTitleLine(record) {
+  return typeof record?.title === 'string' && record.title.trim()
+    ? record.title.trim()
+    : notificationKindLabel(record);
+}
+
+function formatMetadataLine(record) {
   const parts = [
     notificationKindLabel(record),
-    record?.subtitle,
-    record?.title,
+    formatProjectLabel(record),
+    formatSessionShortId(record) ? `session ${formatSessionShortId(record)}` : undefined,
   ].filter(Boolean);
   return parts.join(' - ');
 }
@@ -109,18 +125,15 @@ function formatDetailLine(record) {
   if (body) {
     return body;
   }
-
-  const details = [
-    record?.cwd,
-    formatSessionShortId(record) ? `session ${formatSessionShortId(record)}` : undefined,
-  ].filter(Boolean);
-  return details.join(' - ');
+  return undefined;
 }
 
 function formatNotificationMessage(record) {
-  const summary = formatSummaryLine(record);
-  const detail = formatDetailLine(record);
-  return detail ? `${summary}\n${detail}` : summary;
+  return [
+    formatTitleLine(record),
+    formatMetadataLine(record),
+    formatDetailLine(record),
+  ].filter(Boolean).join('\n');
 }
 
 function formatTooltip(record, unreadCount) {
@@ -342,7 +355,7 @@ function createAgentNotificationManager(vscode, {
       description: record.body || record.subtitle || '',
       detail: [
         notificationKindLabel(record),
-        record.cwd,
+        formatProjectLabel(record),
         formatSessionShortId(record) ? `session ${formatSessionShortId(record)}` : undefined,
       ].filter(Boolean).join(' - '),
       record,
