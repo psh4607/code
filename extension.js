@@ -13,10 +13,12 @@ const {
   createTerminalCwdColorManager,
 } = require('./src/terminalCwdColor');
 const { createSmartPasteCommand } = require('./src/smartPasteCommand');
+const { createTitlebarInfoManager } = require('./src/titlebarInfo');
 
 let detachedTerminalTtlManager;
 let codexSessionResumeManager;
 let terminalCwdColorManager;
+let titlebarInfoManager;
 
 function activate(context) {
   detachedTerminalTtlManager = createDetachedTerminalTtlManager(vscode, {
@@ -31,11 +33,16 @@ function activate(context) {
     context,
   });
   terminalCwdColorManager.start();
+  titlebarInfoManager = createTitlebarInfoManager(vscode, {
+    context,
+  });
+  titlebarInfoManager.start();
 
   context.subscriptions.push(
     detachedTerminalTtlManager,
     codexSessionResumeManager,
     terminalCwdColorManager,
+    titlebarInfoManager,
     vscode.commands.registerCommand(
       'codexTerminal.newFromActiveCwd',
       createNewTerminalFromActiveCwdCommand(vscode),
@@ -64,6 +71,7 @@ function activate(context) {
 }
 
 function deactivate() {
+  titlebarInfoManager?.dispose();
   terminalCwdColorManager?.dispose();
   codexSessionResumeManager?.dispose();
   detachedTerminalTtlManager?.stopForExtensionShutdown();

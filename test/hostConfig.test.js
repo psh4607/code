@@ -102,6 +102,8 @@ test('normalizeSettings applies managed VS Code settings without dropping existi
   assert.equal(changed, true);
   assert.equal(value['files.autoSave'], 'afterDelay');
   assert.equal(value['update.mode'], 'none');
+  assert.equal(value['window.commandCenter'], false);
+  assert.equal(value['window.title'], '${codexTitlebarInfo}');
   assert.equal(value['terminal.integrated.splitCwd'], 'inherited');
   assert.equal(value['terminal.integrated.tabs.focusMode'], 'singleClick');
   assert.equal(value['workbench.secondarySideBar.defaultVisibility'], 'hidden');
@@ -130,6 +132,14 @@ test('normalizeSettings applies managed VS Code settings without dropping existi
     value['workbench.settings.applyToAllProfiles'].includes(
       'workbench.secondarySideBar.defaultVisibility',
     ),
+    true,
+  );
+  assert.equal(
+    value['workbench.settings.applyToAllProfiles'].includes('window.commandCenter'),
+    true,
+  );
+  assert.equal(
+    value['workbench.settings.applyToAllProfiles'].includes('window.title'),
     true,
   );
   assert.equal(
@@ -215,6 +225,107 @@ test('normalizeKeybindings replaces managed terminal shortcuts and preserves unr
         entry.when === 'terminalFocus',
     ),
     false,
+  );
+});
+
+test('normalizeKeybindings manages Cmd+number sidebar view toggles', () => {
+  const keybindings = [
+    {
+      key: 'cmd+2',
+      command: 'workbench.view.scm',
+      when: "workbench.scm.active && activeViewlet != 'workbench.view.scm'",
+    },
+    {
+      key: 'cmd+3',
+      command: 'workbench.view.extension.github-pull-requests',
+    },
+    {
+      key: 'cmd+4',
+      command: 'workbench.view.extension.claude-sidebar-secondary',
+      when: 'viewContainer.workbench.view.extension.claude-sidebar-secondary.enabled',
+    },
+    {
+      key: 'cmd+2',
+      command: '-workbench.action.focusSecondEditorGroup',
+    },
+    {
+      key: 'cmd+3',
+      command: '-workbench.action.focusThirdEditorGroup',
+    },
+    {
+      key: 'cmd+4',
+      command: '-workbench.action.focusFourthEditorGroup',
+    },
+  ];
+
+  const { value, changed } = normalizeKeybindings(keybindings);
+
+  assert.equal(changed, true);
+  assert.deepEqual(
+    value.find(
+      (entry) =>
+        entry.key === 'cmd+2' && entry.command === 'workbench.action.toggleSidebarVisibility',
+    ),
+    {
+      key: 'cmd+2',
+      command: 'workbench.action.toggleSidebarVisibility',
+      when: "activeViewlet == 'workbench.view.scm'",
+    },
+  );
+  assert.deepEqual(
+    value.find((entry) => entry.key === 'cmd+2' && entry.command === 'workbench.view.scm'),
+    {
+      key: 'cmd+2',
+      command: 'workbench.view.scm',
+      when: "workbench.scm.active && activeViewlet != 'workbench.view.scm'",
+    },
+  );
+  assert.deepEqual(
+    value.find(
+      (entry) =>
+        entry.key === 'cmd+3' && entry.command === 'workbench.action.toggleSidebarVisibility',
+    ),
+    {
+      key: 'cmd+3',
+      command: 'workbench.action.toggleSidebarVisibility',
+      when: "activeViewlet == 'workbench.view.extension.github-pull-requests'",
+    },
+  );
+  assert.deepEqual(
+    value.find(
+      (entry) =>
+        entry.key === 'cmd+3' &&
+        entry.command === 'workbench.view.extension.github-pull-requests',
+    ),
+    {
+      key: 'cmd+3',
+      command: 'workbench.view.extension.github-pull-requests',
+      when: "activeViewlet != 'workbench.view.extension.github-pull-requests'",
+    },
+  );
+  assert.deepEqual(
+    value.find(
+      (entry) =>
+        entry.key === 'cmd+4' && entry.command === 'workbench.action.toggleSidebarVisibility',
+    ),
+    {
+      key: 'cmd+4',
+      command: 'workbench.action.toggleSidebarVisibility',
+      when: "activeViewlet == 'workbench.view.extension.claude-sidebar-secondary'",
+    },
+  );
+  assert.deepEqual(
+    value.find(
+      (entry) =>
+        entry.key === 'cmd+4' &&
+        entry.command === 'workbench.view.extension.claude-sidebar-secondary',
+    ),
+    {
+      key: 'cmd+4',
+      command: 'workbench.view.extension.claude-sidebar-secondary',
+      when:
+        "viewContainer.workbench.view.extension.claude-sidebar-secondary.enabled && activeViewlet != 'workbench.view.extension.claude-sidebar-secondary'",
+    },
   );
 });
 
@@ -669,7 +780,7 @@ test('checkVscodeOpaqueOverlaysPatch reports whether quick input and dialogs are
   });
 });
 
-test('checkVscodeTitlebarCenterPatch reports whether the titlebar center is hidden', () => {
+test('checkVscodeTitlebarCenterPatch reports whether titlebar center controls are hidden', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
   const cssPath = path.join(tmpDir, 'workbench.desktop.main.css');
 
@@ -697,7 +808,7 @@ test('checkVscodeTitlebarCenterPatch reports whether the titlebar center is hidd
   );
   assert.deepEqual(checkVscodeTitlebarCenterPatch(cssPath), {
     ok: true,
-    detail: 'titlebar center is hidden',
+    detail: 'titlebar center controls are hidden',
   });
 });
 

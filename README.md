@@ -185,7 +185,17 @@ the managed opaque overlay rules to each target app.
 ## Titlebar Center
 
 VS Code can draw the Command Center and agent status controls across the middle of the titlebar.
-This machine hides that center titlebar surface while leaving the rest of the workbench intact:
+This machine disables the Command Center and uses that center title text for compact active
+workspace context instead. The extension publishes `${codexTitlebarInfo}` from the active
+editor's workspace folder, the current Git branch, and the current GitHub PR when `gh pr view`
+can resolve one, for example:
+
+```text
+inf | main | PR #123
+```
+
+The local CSS patch still hides the agent status controls while leaving the rest of the workbench
+intact:
 
 ```sh
 npm run patch:vscode-titlebar-center
@@ -198,7 +208,8 @@ patch-vscode-terminal-order
 ```
 
 Run it again after a VS Code update. The patch backs up the current workbench CSS before appending
-the managed hide rule to each target app.
+the managed hide rule to each target app. Run `npm run apply` to refresh the managed
+`window.title` and `window.commandCenter` settings.
 
 ## Terminal Tabs Layout
 

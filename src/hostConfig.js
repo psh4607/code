@@ -15,12 +15,16 @@ const MANAGED_APPLY_TO_ALL_PROFILES = [
   'terminal.integrated.enablePersistentSessions',
   'terminal.integrated.persistentSessionReviveProcess',
   'terminal.integrated.commandsToSkipShell',
+  'window.commandCenter',
+  'window.title',
   'workbench.browser.openLocalhostLinks',
   'workbench.secondarySideBar.defaultVisibility',
 ];
 
 const MANAGED_SETTINGS = {
   'update.mode': 'none',
+  'window.commandCenter': false,
+  'window.title': '${codexTitlebarInfo}',
   'workbench.browser.openLocalhostLinks': false,
   'terminal.integrated.tabs.title': '${sequence}',
   'terminal.integrated.tabs.description': '',
@@ -57,6 +61,61 @@ const CODEX_SESSION_REGISTRY_HOOK_MARKER =
   '#codex-vscode-terminal-tools:session-registry:v1';
 const CODEX_SESSION_REGISTRY_HOOK_EVENT = 'SessionStart';
 
+const MANAGED_SIDEBAR_VIEW_TOGGLES = [
+  {
+    key: 'cmd+1',
+    command: 'workbench.view.explorer',
+    activeViewlet: 'workbench.view.explorer',
+    openWhen: 'viewContainer.workbench.view.explorer.enabled',
+    defaultEditorGroupCommand: 'workbench.action.focusFirstEditorGroup',
+  },
+  {
+    key: 'cmd+2',
+    command: 'workbench.view.scm',
+    activeViewlet: 'workbench.view.scm',
+    openWhen: 'workbench.scm.active',
+    defaultEditorGroupCommand: 'workbench.action.focusSecondEditorGroup',
+  },
+  {
+    key: 'cmd+3',
+    command: 'workbench.view.extension.github-pull-requests',
+    activeViewlet: 'workbench.view.extension.github-pull-requests',
+    defaultEditorGroupCommand: 'workbench.action.focusThirdEditorGroup',
+  },
+  {
+    key: 'cmd+4',
+    command: 'workbench.view.extension.claude-sidebar-secondary',
+    activeViewlet: 'workbench.view.extension.claude-sidebar-secondary',
+    openWhen: 'viewContainer.workbench.view.extension.claude-sidebar-secondary.enabled',
+    defaultEditorGroupCommand: 'workbench.action.focusFourthEditorGroup',
+  },
+];
+
+function joinWhenClauses(...clauses) {
+  return clauses.filter(Boolean).join(' && ');
+}
+
+function createManagedSidebarViewKeybindings() {
+  return MANAGED_SIDEBAR_VIEW_TOGGLES.flatMap(
+    ({ key, command, activeViewlet, openWhen, defaultEditorGroupCommand }) => [
+      {
+        key,
+        command: 'workbench.action.toggleSidebarVisibility',
+        when: `activeViewlet == '${activeViewlet}'`,
+      },
+      {
+        key,
+        command,
+        when: joinWhenClauses(openWhen, `activeViewlet != '${activeViewlet}'`),
+      },
+      {
+        key,
+        command: `-${defaultEditorGroupCommand}`,
+      },
+    ],
+  );
+}
+
 const MANAGED_KEYBINDINGS = [
   {
     key: 'cmd+t',
@@ -87,36 +146,18 @@ const MANAGED_KEYBINDINGS = [
     command: 'codexTerminal.attachDetachedSession',
     when: 'terminalProcessSupported',
   },
+  ...createManagedSidebarViewKeybindings(),
 ];
 
 const MANAGED_KEYBINDING_REPLACEMENTS = [
-  {
-    key: 'cmd+t',
-    when: 'terminalProcessSupported || terminalWebExtensionContributedProfile',
-  },
-  {
-    key: 'cmd+w',
-    when: 'terminal.active && terminalFocus',
-  },
-  {
-    key: 'cmd+r',
-    when: 'terminalFocus',
-  },
-  {
-    key: 'cmd+v',
-    when: 'terminalFocus',
-  },
-  {
-    key: 'cmd+shift+t',
-    when: undefined,
-  },
-  {
-    key: 'cmd+shift+t',
-    when: 'terminalProcessSupported',
-  },
+  ...MANAGED_KEYBINDINGS.map(({ key, when }) => ({ key, when })),
   {
     key: 'shift+enter',
     when: 'terminalFocus',
+  },
+  {
+    key: 'cmd+4',
+    when: 'viewContainer.workbench.view.extension.claude-sidebar-secondary.enabled',
   },
 ];
 
@@ -987,7 +1028,7 @@ function checkVscodeTitlebarCenterPatch(cssPath) {
 
   return {
     ok,
-    detail: ok ? 'titlebar center is hidden' : 'titlebar center patch missing',
+    detail: ok ? 'titlebar center controls are hidden' : 'titlebar center patch missing',
   };
 }
 
