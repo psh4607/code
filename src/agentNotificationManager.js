@@ -250,16 +250,6 @@ function createAgentNotificationManager(vscode, {
     }
   }
 
-  async function previewRecordTerminal(record) {
-    const terminalMatch = await findTerminalForRecord(record);
-    if (!terminalMatch) {
-      return false;
-    }
-    terminalMatch.terminal.show(true);
-    await flashActiveTerminalTab();
-    return true;
-  }
-
   async function openRecord(record) {
     const terminalMatch = await findTerminalForRecord(record);
     if (!terminalMatch) {
@@ -275,7 +265,6 @@ function createAgentNotificationManager(vscode, {
   }
 
   async function presentRecord(record) {
-    await previewRecordTerminal(record);
     const selected = await vscode.window.showInformationMessage(
       formatNotificationMessage(record),
       'Open Terminal',

@@ -125,7 +125,7 @@ test('manager polls JSONL events, updates status bar, and presents new unread no
   ]);
 });
 
-test('manager flashes the matching terminal tab when presenting a notification', async () => {
+test('manager does not reveal or flash terminals when presenting a notification', async () => {
   const terminal = terminalWithPid(1234);
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createAgentNotificationManager(fake.vscode, {
@@ -137,10 +137,8 @@ test('manager flashes the matching terminal tab when presenting a notification',
   manager.start();
   await manager.flush();
 
-  assert.deepEqual(terminal.showCalls, [true]);
-  assert.deepEqual(fake.executedCommands, [
-    ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
-  ]);
+  assert.deepEqual(terminal.showCalls, []);
+  assert.deepEqual(fake.executedCommands, []);
 });
 
 test('manager does not present the same event twice across polls', async () => {
@@ -175,15 +173,14 @@ test('manager opens the latest unread matching terminal by process id and marks 
   assert.equal(await manager.openLatestAgentNotification(), true);
   assert.equal(terminal.shown, true);
   assert.equal(terminal.preserveFocus, false);
-  assert.deepEqual(terminal.showCalls, [true, false]);
+  assert.deepEqual(terminal.showCalls, [false]);
   assert.deepEqual(fake.executedCommands, [
-    ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
     ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
   ]);
   assert.equal(fake.statusBarItems[0].visible, false);
 });
 
-test('manager flashes the matching terminal tab again after Open Terminal is selected', async () => {
+test('manager flashes the matching terminal tab after Open Terminal is selected', async () => {
   const terminal = terminalWithPid(1234);
   const fake = createFakeVscode({
     terminals: [terminal],
@@ -198,9 +195,8 @@ test('manager flashes the matching terminal tab again after Open Terminal is sel
   manager.start();
   await manager.flush();
 
-  assert.deepEqual(terminal.showCalls, [true, false]);
+  assert.deepEqual(terminal.showCalls, [false]);
   assert.deepEqual(fake.executedCommands, [
-    ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
     ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
   ]);
   assert.equal(fake.statusBarItems[0].visible, false);
