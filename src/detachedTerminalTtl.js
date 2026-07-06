@@ -1,6 +1,7 @@
 const { execFile } = require('node:child_process');
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000;
+const DEFAULT_HISTORY_RETENTION_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000;
 const DEFAULT_KILL_GRACE_MS = 2500;
 const STORAGE_KEY = 'codexTerminal.detachedTerminalTtl.records';
@@ -27,6 +28,11 @@ function normalizePid(pid) {
   return Number.isSafeInteger(parsed) && parsed > 1 ? parsed : undefined;
 }
 
+function normalizeTimestamp(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 async function getTerminalPid(terminal) {
   if (!terminal) {
     return undefined;
@@ -48,12 +54,27 @@ function normalizeRecords(records) {
       continue;
     }
 
-    unique.set(pid, {
+    const normalizedRecord = {
       pid,
       detachedAt,
       expiresAt,
       title: typeof record.title === 'string' ? record.title : '',
-    });
+    };
+    const reattachedAt = normalizeTimestamp(record.reattachedAt);
+    const terminatedAt = normalizeTimestamp(record.terminatedAt);
+
+    if (reattachedAt !== undefined) {
+      normalizedRecord.reattachedAt = reattachedAt;
+    }
+
+    if (terminatedAt !== undefined) {
+      normalizedRecord.terminatedAt = terminatedAt;
+      if (typeof record.terminationReason === 'string' && record.terminationReason) {
+        normalizedRecord.terminationReason = record.terminationReason;
+      }
+    }
+
+    unique.set(pid, normalizedRecord);
   }
 
   return Array.from(unique.values()).sort((a, b) => a.detachedAt - b.detachedAt);
@@ -78,19 +99,96 @@ function formatRemainingTime(remainingMs) {
   return minutes === 0 ? `${hours}시간` : `${hours}시간 ${minutes}분`;
 }
 
-function createDetachedTerminalQuickPickItems(records, { now = Date.now(), formatTime } = {}) {
+function getHistoryExpiresAt(record, historyRetentionMs) {
+  return record.detachedAt + historyRetentionMs;
+}
+
+function markReattached(record, reattachedAt) {
+  const nextRecord = {
+    ...record,
+    reattachedAt,
+  };
+  delete nextRecord.terminatedAt;
+  delete nextRecord.terminationReason;
+  return nextRecord;
+}
+
+function markTerminated(record, terminatedAt, terminationReason) {
+  if (record.terminatedAt !== undefined) {
+    return record;
+  }
+
+  return {
+    ...record,
+    terminatedAt,
+    terminationReason,
+  };
+}
+
+function createUnavailableItem(record, { detail, reason }) {
+  return {
+    label: `${record.title || 'Terminal'} ${record.pid}`,
+    detail,
+    description: reason,
+    pid: record.pid,
+    record,
+    canAttach: false,
+    unavailableReason: reason,
+    alwaysShow: true,
+  };
+}
+
+function createDetachedTerminalQuickPickItems(
+  records,
+  {
+    now = Date.now(),
+    formatTime,
+    historyRetentionMs = DEFAULT_HISTORY_RETENTION_MS,
+    isAlive,
+  } = {},
+) {
   const currentTime = Number(now);
   const formatExpiryTime = formatTime ?? formatDefaultTime;
 
   return normalizeRecords(records)
-    .filter((record) => record.expiresAt > currentTime)
+    .filter((record) => getHistoryExpiresAt(record, historyRetentionMs) > currentTime)
     .sort((left, right) => right.detachedAt - left.detachedAt)
-    .map((record) => ({
-      label: `${record.title || 'Terminal'} ${record.pid}`,
-      detail: `TTL ${formatExpiryTime(record.expiresAt)}까지 | ${formatRemainingTime(record.expiresAt - currentTime)} 남음`,
-      pid: record.pid,
-      record,
-    }));
+    .map((record) => {
+      const historyDetail = `기록 ${formatExpiryTime(
+        getHistoryExpiresAt(record, historyRetentionMs),
+      )}까지`;
+      if (record.reattachedAt !== undefined) {
+        return createUnavailableItem(record, {
+          detail: `재연결됨 ${formatExpiryTime(record.reattachedAt)} | ${historyDetail}`,
+          reason: '이미 재연결됨',
+        });
+      }
+
+      if (record.expiresAt <= currentTime) {
+        return createUnavailableItem(record, {
+          detail: `TTL ${formatExpiryTime(record.expiresAt)}에 만료됨 | ${historyDetail}`,
+          reason: 'TTL 만료됨',
+        });
+      }
+
+      const alive = isAlive ? isAlive(record) : record.terminatedAt === undefined;
+      if (!alive || record.terminatedAt !== undefined) {
+        return createUnavailableItem(record, {
+          detail: `마지막 TTL ${formatExpiryTime(record.expiresAt)}까지 | ${historyDetail}`,
+          reason: '프로세스 종료됨',
+        });
+      }
+
+      return {
+        label: `${record.title || 'Terminal'} ${record.pid}`,
+        detail: `TTL ${formatExpiryTime(record.expiresAt)}까지 | ${formatRemainingTime(
+          record.expiresAt - currentTime,
+        )} 남음`,
+        pid: record.pid,
+        record,
+        canAttach: true,
+      };
+    });
 }
 
 function execFileText(file, args, execFileImpl = execFile) {
@@ -199,6 +297,7 @@ function createDefaultKillTree({
 
 function createDetachedTerminalTtlManager(vscode, options = {}) {
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+  const historyRetentionMs = options.historyRetentionMs ?? DEFAULT_HISTORY_RETENTION_MS;
   const sweepIntervalMs = options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
   const now = options.now ?? Date.now;
   const processApi = options.processApi ?? process;
@@ -240,18 +339,45 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
     await writeRecords(records);
   }
 
-  async function removePid(pid) {
+  function retainHistoryRecords(records, currentTime) {
+    return records.filter(
+      (record) => getHistoryExpiresAt(record, historyRetentionMs) > currentTime,
+    );
+  }
+
+  async function markPidReattached(pid) {
     const normalizedPid = normalizePid(pid);
     if (!normalizedPid) {
       return;
     }
 
-    await writeRecords((await readRecords()).filter((record) => record.pid !== normalizedPid));
+    const reattachedAt = now();
+    await writeRecords(
+      (await readRecords()).map((record) =>
+        record.pid === normalizedPid ? markReattached(record, reattachedAt) : record,
+      ),
+    );
+  }
+
+  async function markPidTerminated(pid, terminationReason) {
+    const normalizedPid = normalizePid(pid);
+    if (!normalizedPid) {
+      return;
+    }
+
+    const terminatedAt = now();
+    await writeRecords(
+      (await readRecords()).map((record) =>
+        record.pid === normalizedPid
+          ? markTerminated(record, terminatedAt, terminationReason)
+          : record,
+      ),
+    );
   }
 
   async function removeTerminalPid(terminal) {
     const pid = await getTerminalPid(terminal);
-    await removePid(pid);
+    await markPidReattached(pid);
   }
 
   async function detachActiveTerminal() {
@@ -276,10 +402,14 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
 
   async function attachDetachedTerminal() {
     await sweepExpired();
-    const records = (await readRecords()).filter((record) => isProcessAlive(record.pid, processApi));
+    const records = await readRecords();
     const items = createDetachedTerminalQuickPickItems(records, {
       now: now(),
       formatTime,
+      historyRetentionMs,
+      isAlive(record) {
+        return isProcessAlive(record.pid, processApi);
+      },
     });
 
     if (items.length === 0) {
@@ -296,10 +426,23 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
       return;
     }
 
+    if (!selected.canAttach) {
+      vscode.window.showInformationMessage?.(
+        selected.unavailableReason || 'Detached terminal session is not attachable.',
+      );
+      return;
+    }
+
+    if (!isProcessAlive(selected.pid, processApi)) {
+      await markPidTerminated(selected.pid, 'dead');
+      vscode.window.showInformationMessage?.('프로세스 종료됨');
+      return;
+    }
+
     await vscode.commands.executeCommand('workbench.action.terminal.attachToSession', {
       pid: selected.pid,
     });
-    await removePid(selected.pid);
+    await markPidReattached(selected.pid);
   }
 
   async function killRecords(records) {
@@ -321,29 +464,38 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
 
   async function sweepExpired() {
     const currentTime = now();
-    const records = await readRecords();
-    const liveRecords = records.filter((record) => isProcessAlive(record.pid, processApi));
-    const expired = liveRecords.filter((record) => record.expiresAt <= currentTime);
-    const fresh = liveRecords.filter((record) => record.expiresAt > currentTime);
+    const records = retainHistoryRecords(await readRecords(), currentTime);
+    const keep = [];
 
-    if (expired.length === 0) {
-      await writeRecords(fresh);
-      return;
-    }
+    for (const record of records) {
+      if (record.reattachedAt !== undefined || record.terminatedAt !== undefined) {
+        keep.push(record);
+        continue;
+      }
 
-    const failed = [];
-    for (const record of expired) {
+      if (!isProcessAlive(record.pid, processApi)) {
+        keep.push(markTerminated(record, currentTime, 'dead'));
+        continue;
+      }
+
+      if (record.expiresAt > currentTime) {
+        keep.push(record);
+        continue;
+      }
+
       try {
         if (!(await killTree(record.pid))) {
-          failed.push(record);
+          keep.push(record);
+        } else {
+          keep.push(markTerminated(record, currentTime, 'expired'));
         }
       } catch (error) {
         log.warn?.(`Failed to kill expired detached terminal pid ${record.pid}`, error);
-        failed.push(record);
+        keep.push(record);
       }
     }
 
-    await writeRecords([...fresh, ...failed]);
+    await writeRecords(keep);
   }
 
   async function killAllTracked() {
@@ -408,6 +560,7 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
 }
 
 module.exports = {
+  DEFAULT_HISTORY_RETENTION_MS,
   DEFAULT_TTL_MS,
   STORAGE_KEY,
   collectDescendantPids,

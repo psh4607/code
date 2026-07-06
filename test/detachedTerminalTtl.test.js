@@ -86,6 +86,19 @@ function createAliveProcessApi() {
   };
 }
 
+function createSelectiveProcessApi(alivePids) {
+  return {
+    kill(pid, signal) {
+      if (signal === 0 && !alivePids.has(pid)) {
+        const error = new Error('missing');
+        error.code = 'ESRCH';
+        throw error;
+      }
+      return true;
+    },
+  };
+}
+
 test('detach command records the active terminal pid with a one hour expiry', async () => {
   const storage = createMemoryStorage();
   const fake = createFakeVscode({ activeTerminal: terminalWithPid(1234, 'work') });
@@ -109,7 +122,7 @@ test('detach command records the active terminal pid with a one hour expiry', as
   assert.deepEqual(fake.warnings, []);
 });
 
-test('attach command removes the reattached terminal pid from the ttl registry', async () => {
+test('attach command marks the reattached terminal pid in the ttl registry', async () => {
   const storage = createMemoryStorage([
     {
       pid: 2222,
@@ -133,10 +146,18 @@ test('attach command removes the reattached terminal pid from the ttl registry',
   assert.deepEqual(fake.executedCommands, [
     ['workbench.action.terminal.attachToSession', { pid: 2222 }],
   ]);
-  assert.deepEqual(storage.snapshot(), []);
+  assert.deepEqual(storage.snapshot(), [
+    {
+      pid: 2222,
+      detachedAt: 1000,
+      expiresAt: 3601000,
+      title: 'old',
+      reattachedAt: 2000,
+    },
+  ]);
 });
 
-test('attach command sweeps expired tracked terminals before opening the attach picker', async () => {
+test('attach command shows expired tracked terminals as unavailable history', async () => {
   const storage = createMemoryStorage([
     {
       pid: 1111,
@@ -168,10 +189,45 @@ test('attach command sweeps expired tracked terminals before opening the attach 
   await manager.attachDetachedTerminal();
 
   assert.deepEqual(killed, [1111]);
+  assert.deepEqual(
+    fake.quickPickCalls[0].items.map((item) => ({
+      pid: item.pid,
+      canAttach: item.canAttach,
+      description: item.description,
+    })),
+    [
+      {
+        pid: 2222,
+        canAttach: true,
+        description: undefined,
+      },
+      {
+        pid: 1111,
+        canAttach: false,
+        description: 'TTL 만료됨',
+      },
+    ],
+  );
   assert.deepEqual(fake.executedCommands, [
     ['workbench.action.terminal.attachToSession', { pid: 2222 }],
   ]);
-  assert.deepEqual(storage.snapshot(), []);
+  assert.deepEqual(storage.snapshot(), [
+    {
+      pid: 1111,
+      detachedAt: 1000,
+      expiresAt: 2000,
+      title: 'expired',
+      terminatedAt: 3000,
+      terminationReason: 'expired',
+    },
+    {
+      pid: 2222,
+      detachedAt: 2000,
+      expiresAt: 8000,
+      title: 'fresh',
+      reattachedAt: 3000,
+    },
+  ]);
 });
 
 test('attach command shows live tracked sessions newest first with ttl expiry time', async () => {
@@ -224,7 +280,7 @@ test('attach command shows live tracked sessions newest first with ttl expiry ti
   assert.equal(fake.quickPickCalls[0].items[0].description, undefined);
 });
 
-test('attach command reports when no live tracked detached sessions remain', async () => {
+test('attach command shows dead tracked sessions as unavailable history', async () => {
   const storage = createMemoryStorage([
     {
       pid: 1111,
@@ -249,8 +305,21 @@ test('attach command reports when no live tracked detached sessions remain', asy
 
   await manager.attachDetachedTerminal();
 
-  assert.equal(fake.quickPickCalls.length, 0);
-  assert.deepEqual(fake.information, ['No tracked detached terminal sessions are available.']);
+  assert.deepEqual(
+    fake.quickPickCalls[0].items.map((item) => ({
+      pid: item.pid,
+      canAttach: item.canAttach,
+      description: item.description,
+    })),
+    [
+      {
+        pid: 1111,
+        canAttach: false,
+        description: '프로세스 종료됨',
+      },
+    ],
+  );
+  assert.deepEqual(fake.information, []);
   assert.deepEqual(fake.executedCommands, []);
 });
 
@@ -289,7 +358,127 @@ test('createDetachedTerminalQuickPickItems formats ttl expiry and remaining time
   assert.equal(items[0].description, undefined);
 });
 
-test('opened terminal listener removes matching tracked pid', async () => {
+test('createDetachedTerminalQuickPickItems keeps six hour history with unavailable states', () => {
+  const items = createDetachedTerminalQuickPickItems(
+    [
+      {
+        pid: 1111,
+        detachedAt: 1001,
+        expiresAt: 601000,
+        title: 'fresh',
+      },
+      {
+        pid: 2222,
+        detachedAt: 2000,
+        expiresAt: 3000,
+        title: 'expired',
+      },
+      {
+        pid: 3333,
+        detachedAt: 3000,
+        expiresAt: 603000,
+        title: 'dead',
+      },
+      {
+        pid: 4444,
+        detachedAt: 4000,
+        expiresAt: 604000,
+        title: 'reattached',
+        reattachedAt: 5000,
+      },
+      {
+        pid: 5555,
+        detachedAt: 100,
+        expiresAt: 200,
+        title: 'too old',
+      },
+    ],
+    {
+      now: 10_000,
+      historyRetentionMs: 9000,
+      formatTime(ms) {
+        return `T${ms}`;
+      },
+      isAlive(record) {
+        return record.pid !== 3333;
+      },
+    },
+  );
+
+  assert.deepEqual(
+    items.map((item) => ({
+      label: item.label,
+      detail: item.detail,
+      description: item.description,
+      canAttach: item.canAttach,
+      pid: item.pid,
+    })),
+    [
+      {
+        label: 'reattached 4444',
+        detail: '재연결됨 T5000 | 기록 T13000까지',
+        description: '이미 재연결됨',
+        canAttach: false,
+        pid: 4444,
+      },
+      {
+        label: 'dead 3333',
+        detail: '마지막 TTL T603000까지 | 기록 T12000까지',
+        description: '프로세스 종료됨',
+        canAttach: false,
+        pid: 3333,
+      },
+      {
+        label: 'expired 2222',
+        detail: 'TTL T3000에 만료됨 | 기록 T11000까지',
+        description: 'TTL 만료됨',
+        canAttach: false,
+        pid: 2222,
+      },
+      {
+        label: 'fresh 1111',
+        detail: 'TTL T601000까지 | 10분 남음',
+        description: undefined,
+        canAttach: true,
+        pid: 1111,
+      },
+    ],
+  );
+});
+
+test('attach command ignores unavailable selections', async () => {
+  const storage = createMemoryStorage([
+    {
+      pid: 1111,
+      detachedAt: 1000,
+      expiresAt: 2000,
+      title: 'expired',
+    },
+    {
+      pid: 2222,
+      detachedAt: 2000,
+      expiresAt: 8000,
+      title: 'fresh',
+    },
+  ]);
+  const fake = createFakeVscode({ quickPickIndex: 1 });
+  const manager = createDetachedTerminalTtlManager(fake.vscode, {
+    storage,
+    now: () => 3000,
+    processApi: createAliveProcessApi(),
+    startTimers: false,
+    async killTree() {
+      return true;
+    },
+  });
+
+  await manager.attachDetachedTerminal();
+
+  assert.deepEqual(fake.executedCommands, []);
+  assert.deepEqual(fake.information, ['TTL 만료됨']);
+});
+
+test('opened terminal listener marks matching tracked pid reattached', async () => {
   const storage = createMemoryStorage([
     {
       pid: 3333,
@@ -308,7 +497,15 @@ test('opened terminal listener removes matching tracked pid', async () => {
   manager.start();
   await fake.openedListeners[0](terminalWithPid(3333, 'opened'));
 
-  assert.deepEqual(storage.snapshot(), []);
+  assert.deepEqual(storage.snapshot(), [
+    {
+      pid: 3333,
+      detachedAt: 1000,
+      expiresAt: 3601000,
+      title: 'old',
+      reattachedAt: 2000,
+    },
+  ]);
   manager.dispose();
 });
 
@@ -344,6 +541,14 @@ test('sweepExpired kills only expired records and keeps fresh records', async ()
   assert.deepEqual(killed, [4444]);
   assert.deepEqual(storage.snapshot(), [
     {
+      pid: 4444,
+      detachedAt: 1000,
+      expiresAt: 2000,
+      title: 'expired',
+      terminatedAt: 3000,
+      terminationReason: 'expired',
+    },
+    {
       pid: 5555,
       detachedAt: 2000,
       expiresAt: 8000,
@@ -352,7 +557,7 @@ test('sweepExpired kills only expired records and keeps fresh records', async ()
   ]);
 });
 
-test('sweepExpired removes dead records even when their ttl has not expired', async () => {
+test('sweepExpired keeps dead records as history until retention expires', async () => {
   const storage = createMemoryStorage([
     {
       pid: 4444,
@@ -393,10 +598,61 @@ test('sweepExpired removes dead records even when their ttl has not expired', as
   assert.deepEqual(killed, []);
   assert.deepEqual(storage.snapshot(), [
     {
+      pid: 4444,
+      detachedAt: 1000,
+      expiresAt: 8000,
+      title: 'dead fresh',
+      terminatedAt: 3000,
+      terminationReason: 'dead',
+    },
+    {
       pid: 5555,
       detachedAt: 2000,
       expiresAt: 8000,
       title: 'alive fresh',
+    },
+  ]);
+});
+
+test('sweepExpired purges records only after the history retention window', async () => {
+  const storage = createMemoryStorage([
+    {
+      pid: 4444,
+      detachedAt: 1001,
+      expiresAt: 2000,
+      title: 'expired in history',
+    },
+    {
+      pid: 5555,
+      detachedAt: 1000,
+      expiresAt: 2000,
+      title: 'expired too old',
+    },
+  ]);
+  const killed = [];
+  const manager = createDetachedTerminalTtlManager(createFakeVscode().vscode, {
+    storage,
+    now: () => 10_000,
+    historyRetentionMs: 9000,
+    startTimers: false,
+    processApi: createSelectiveProcessApi(new Set([4444, 5555])),
+    async killTree(pid) {
+      killed.push(pid);
+      return true;
+    },
+  });
+
+  await manager.sweepExpired();
+
+  assert.deepEqual(killed, [4444]);
+  assert.deepEqual(storage.snapshot(), [
+    {
+      pid: 4444,
+      detachedAt: 1001,
+      expiresAt: 2000,
+      title: 'expired in history',
+      terminatedAt: 10000,
+      terminationReason: 'expired',
     },
   ]);
 });
