@@ -642,6 +642,7 @@ test('checkWorkbenchPatches requires the IME terminal sendSequence hooks', () =>
       'this.groups.splice(Math.min(o+1,this.groups.length),0,n)',
       'codexTerminal.rememberCwdColor',
       'typeof t=="string"||t===null',
+      'codexTerminal.flashActiveTerminalTab',
       'this._terminalGroupService.instances.length-1,I=this._terminalGroupService.instances[S]',
       'this._register($(this._tabListDomElement,"mousedown",async o=>{if(o.button!==0)return',
       'super("TerminalTabsList",e,{getHeight:()=>68,getTemplateId:()=>"terminal.tabs"}',

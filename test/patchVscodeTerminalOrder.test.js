@@ -126,6 +126,8 @@ test('patch script applies terminal order and programmatic active-tab color patc
   assert.equal(nextSource.includes(patchedChangeColorActiveTab), true);
   assert.equal(nextSource.includes('for(let s of i.service.activeInstance?[i.service.activeInstance]:[])'), true);
   assert.equal(nextSource.includes('codexTerminal.rememberCwdColor'), true);
+  assert.equal(nextSource.includes('codexTerminal.flashActiveTerminalTab'), true);
+  assert.equal(nextSource.includes('codex-terminal-tab-highlight-flash'), true);
 });
 
 test('patch script can add color patch when terminal order patch is already applied', () => {
@@ -183,6 +185,34 @@ test('patch script supports VS Code 1.127 terminal color markers', () => {
   assert.equal(nextSource.includes('title:Ir.changeColor'), false);
   assert.equal(nextSource.includes('Omt(i,t)'), false);
   assert.equal(nextSource.includes('EGe(e)'), false);
+  assert.equal(nextSource.includes('codexTerminal.flashActiveTerminalTab'), true);
+});
+
+test('patch script adds terminal tab highlight command to already patched workbench', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  const source = [
+    'class TerminalGroups {',
+    patchedUnsplit,
+    '}',
+    'function Kr(){}',
+    'const Ir={changeColor:""};',
+    'const Ra={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
+    'function Omt(){}',
+    'function EGe(){return[]}',
+    patchedChangeColor,
+    patchedChangeColorActiveTab,
+    ...patchedTabsEmptyAreaMarkers(),
+  ].join('\n');
+  fs.writeFileSync(workbenchPath, source);
+
+  const result = runPatchScript({ workbenchPath, tmpDir });
+
+  assert.equal(result.status, 0, result.stderr);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.equal(nextSource.includes(patchedChangeColorActiveTab), true);
+  assert.equal(nextSource.includes('codexTerminal.flashActiveTerminalTab'), true);
+  assert.equal(nextSource.includes('codex-terminal-tab-highlight-flash'), true);
 });
 
 test('patch script supports VS Code 1.127 terminal tab empty-area focus markers', () => {

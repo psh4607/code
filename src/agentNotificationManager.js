@@ -22,6 +22,8 @@ const SHOW_AGENT_NOTIFICATIONS_COMMAND = 'codexTerminal.showAgentNotifications';
 const OPEN_LATEST_AGENT_NOTIFICATION_COMMAND = 'codexTerminal.openLatestAgentNotification';
 const MARK_AGENT_NOTIFICATIONS_READ_COMMAND = 'codexTerminal.markAgentNotificationsRead';
 const CLEAR_AGENT_NOTIFICATIONS_COMMAND = 'codexTerminal.clearAgentNotifications';
+const FLASH_ACTIVE_TERMINAL_TAB_COMMAND = 'codexTerminal.flashActiveTerminalTab';
+const FLASH_TERMINAL_TAB_DURATION_MS = 1000;
 const RECORDS_STORAGE_KEY = 'codexTerminal.agentNotifications.records';
 const SEEN_EVENT_IDS_STORAGE_KEY = 'codexTerminal.agentNotifications.seenEventIds';
 const MAX_SEEN_EVENT_IDS = 1000;
@@ -234,12 +236,37 @@ function createAgentNotificationManager(vscode, {
     return (await terminalPid(activeTerminal)) === record.terminalPid;
   }
 
+  async function flashActiveTerminalTab() {
+    if (!vscode.commands?.executeCommand) {
+      return false;
+    }
+    try {
+      await vscode.commands.executeCommand(FLASH_ACTIVE_TERMINAL_TAB_COMMAND, {
+        durationMs: FLASH_TERMINAL_TAB_DURATION_MS,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function previewRecordTerminal(record) {
+    const terminalMatch = await findTerminalForRecord(record);
+    if (!terminalMatch) {
+      return false;
+    }
+    terminalMatch.terminal.show(true);
+    await flashActiveTerminalTab();
+    return true;
+  }
+
   async function openRecord(record) {
     const terminalMatch = await findTerminalForRecord(record);
     if (!terminalMatch) {
       return false;
     }
     terminalMatch.terminal.show(false);
+    await flashActiveTerminalTab();
     if (notificationStore.markRead(record.id)) {
       persistState();
     }
@@ -248,6 +275,7 @@ function createAgentNotificationManager(vscode, {
   }
 
   async function presentRecord(record) {
+    await previewRecordTerminal(record);
     const selected = await vscode.window.showInformationMessage(
       formatNotificationMessage(record),
       'Open Terminal',

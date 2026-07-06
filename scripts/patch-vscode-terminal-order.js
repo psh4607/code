@@ -45,6 +45,11 @@ const vscode127OriginalChangeColorActiveTab =
 const vscode127PatchedChangeColorActiveTab =
   'Kr({id:"workbench.action.terminal.changeColorActiveTab",title:wr.changeColor,f1:!1,precondition:Aa.terminalAvailable_and_singularSelection,run:async(i,e,t)=>{let o,n=0,r=Bqe(e);if(typeof t=="string"||t===null){for(let s of i.service.activeInstance?[i.service.activeInstance]:[]){let c=t===null||n!==0;o=await s.changeColor(t??void 0,c),n++}return}async function s(c,l,u){let p=await c?.changeColor(l,u);p&&await e.get(be).executeCommand("codexTerminal.rememberCwdColor",{cwd:await c.getSpeculativeCwd?.(),color:p});return p}if(i.groupService.lastAccessedMenu==="inline-tab"){await s(mft(i,t));return}for(let c of r??[]){let l=n!==0;o=await s(c,o,l),n++}}})';
 
+const terminalTabHighlightCommandMarker = 'codexTerminal.flashActiveTerminalTab';
+
+const terminalTabHighlightCommand =
+  'Kr({id:"codexTerminal.flashActiveTerminalTab",title:"Flash Active Terminal Tab",f1:!1,run:(i,e,t)=>{let o=Math.max(100,Math.min(Number(t?.durationMs)||1e3,5e3)),n="codex-terminal-tab-highlight-flash",r="codex-terminal-tab-highlight-style",s=document.getElementById(r);s||(s=document.createElement("style"),s.id=r,s.textContent="@keyframes codex-terminal-tab-highlight{0%{background-color:rgba(255,176,32,.52);box-shadow:inset 0 0 0 999px rgba(255,176,32,.18),inset 3px 0 0 #ffb020}100%{background-color:transparent;box-shadow:inset 0 0 0 999px rgba(255,176,32,0),inset 3px 0 0 rgba(255,176,32,0)}}.codex-terminal-tab-highlight-flash .terminal-tabs .monaco-list-row.focused,.codex-terminal-tab-highlight-flash .terminal-tabs .monaco-list-row.selected{animation:codex-terminal-tab-highlight var(--codex-terminal-tab-highlight-duration,1000ms) ease-out 1!important;background-color:rgba(255,176,32,.32)!important;box-shadow:inset 0 0 0 999px rgba(255,176,32,.12),inset 3px 0 0 #ffb020!important;}",document.head.appendChild(s)),document.body.style.setProperty("--codex-terminal-tab-highlight-duration",o+"ms"),document.body.classList.remove(n),void document.body.offsetWidth,document.body.classList.add(n),clearTimeout(globalThis.__codexTerminalTabHighlightTimer),globalThis.__codexTerminalTabHighlightTimer=setTimeout(()=>document.body.classList.remove(n),o)}})';
+
 const vscode127OriginalTabsEmptyDoubleClick =
   'this.disposables.add(this.onMouseDblClick(async b=>{if(!b.element){b.browserEvent.preventDefault(),b.browserEvent.stopPropagation();let S=await this._terminalService.createTerminal({location:1});this._terminalGroupService.setActiveInstance(S),await S.focusWhenReady();return}this._terminalEditingService.getEditingTerminal()?.instanceId!==b.element.instanceId&&this._getFocusMode()==="doubleClick"&&this.getFocus().length===1&&b.element.focus(!0)}))';
 
@@ -282,6 +287,43 @@ function getTerminalActiveTabColorPatch(marker) {
     : patchedChangeColorActiveTab;
 }
 
+function getTerminalTabHighlightPatchState(source, activeTabColorState) {
+  const patchedCount = countOccurrences(source, terminalTabHighlightCommandMarker);
+  if (patchedCount === 1) {
+    return { state: 'patched' };
+  }
+  if (patchedCount > 1) {
+    console.error('Could not apply VS Code terminal tab highlight command patch safely.');
+    console.error(`Patched marker count: ${patchedCount}`);
+    console.error('VS Code internals may have changed. Re-check terminal command registration before patching.');
+    process.exit(1);
+  }
+
+  const activeTabColorMarkers = [
+    patchedChangeColorActiveTab,
+    vscode127PatchedChangeColorActiveTab,
+  ];
+  const anchorMatches = activeTabColorMarkers
+    .map((marker) => ({
+      marker,
+      count: countOccurrences(source, marker),
+    }))
+    .filter((match) => match.count > 0);
+  const anchorCount = anchorMatches.reduce((total, match) => total + match.count, 0);
+  if (anchorMatches.length === 1 && anchorCount === 1) {
+    return { state: 'needs-patch', marker: anchorMatches[0].marker };
+  }
+
+  if (activeTabColorState.state === 'needs-patch') {
+    return { state: 'needs-patch-after-active-tab-color' };
+  }
+
+  console.error('Could not apply VS Code terminal tab highlight command patch safely.');
+  console.error(`Active tab color anchor count: ${anchorCount}`);
+  console.error('VS Code internals may have changed. Re-check terminal command registration before patching.');
+  process.exit(1);
+}
+
 if (!fs.existsSync(workbenchPath)) {
   console.error(`VS Code workbench bundle not found: ${workbenchPath}`);
   process.exit(1);
@@ -316,6 +358,10 @@ const terminalActiveTabColorState = getReplacementPatchState({
   patchedMarkers: [patchedChangeColorActiveTab, vscode127PatchedChangeColorActiveTab],
   inspectTarget: 'changeColorActiveTab',
 });
+const terminalTabHighlightState = getTerminalTabHighlightPatchState(
+  source,
+  terminalActiveTabColorState,
+);
 const terminalTabsEmptyDoubleClickState = getReplacementPatchState({
   source,
   name: 'terminal tabs empty-area double-click',
@@ -354,6 +400,7 @@ const workbenchNeedsPatch =
   terminalOrderState === 'needs-patch' ||
   terminalColorState.state === 'needs-patch' ||
   terminalActiveTabColorState.state === 'needs-patch' ||
+  terminalTabHighlightState.state !== 'patched' ||
   terminalTabsEmptyDoubleClickState.state === 'needs-patch' ||
   terminalTabsEmptyClickState.state === 'needs-patch' ||
   terminalTabsNativeEmptyClickState.state === 'needs-patch' ||
@@ -384,6 +431,16 @@ if (!workbenchNeedsPatch) {
     nextSource = nextSource.replace(
       terminalActiveTabColorState.marker,
       getTerminalActiveTabColorPatch(terminalActiveTabColorState.marker),
+    );
+  }
+
+  if (terminalTabHighlightState.state !== 'patched') {
+    const terminalTabHighlightAnchor =
+      terminalTabHighlightState.marker ??
+      getTerminalActiveTabColorPatch(terminalActiveTabColorState.marker);
+    nextSource = nextSource.replace(
+      terminalTabHighlightAnchor,
+      `${terminalTabHighlightAnchor};${terminalTabHighlightCommand}`,
     );
   }
 

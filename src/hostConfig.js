@@ -199,6 +199,7 @@ const LEGACY_ZSH_BLOCK_RE =
 const TERMINAL_ORDER_MARKER = 'this.groups.splice(Math.min(o+1,this.groups.length),0,n)';
 const TERMINAL_COLOR_MARKER = 'codexTerminal.rememberCwdColor';
 const TERMINAL_COLOR_ARGUMENT_MARKER = 'typeof t=="string"||t===null';
+const TERMINAL_TAB_HIGHLIGHT_MARKER = 'codexTerminal.flashActiveTerminalTab';
 const TERMINAL_EMPTY_AREA_MARKER =
   'this._terminalGroupService.instances.length-1,I=this._terminalGroupService.instances[S]';
 const TERMINAL_EMPTY_NATIVE_MARKER =
@@ -930,6 +931,7 @@ function checkWorkbenchPatches(workbenchPath) {
     ['terminal order', TERMINAL_ORDER_MARKER],
     ['terminal color remember', TERMINAL_COLOR_MARKER],
     ['terminal color argument', TERMINAL_COLOR_ARGUMENT_MARKER],
+    ['terminal tab highlight', TERMINAL_TAB_HIGHLIGHT_MARKER],
     ['terminal empty-area focus', TERMINAL_EMPTY_AREA_MARKER],
     ['terminal native empty-area focus', TERMINAL_EMPTY_NATIVE_MARKER],
     ['terminal multi-line tab height', TERMINAL_TABS_TWO_LINE_HEIGHT_MARKER],

@@ -21,10 +21,11 @@ function event(overrides = {}) {
   };
 }
 
-function createFakeVscode({ activeTerminal, terminals = [] } = {}) {
+function createFakeVscode({ activeTerminal, terminals = [], informationMessageSelection } = {}) {
   const statusBarItems = [];
   const informationMessages = [];
   const quickPicks = [];
+  const executedCommands = [];
   const globalStateValues = new Map();
   const globalStateUpdates = [];
 
@@ -32,9 +33,15 @@ function createFakeVscode({ activeTerminal, terminals = [] } = {}) {
     statusBarItems,
     informationMessages,
     quickPicks,
+    executedCommands,
     globalStateValues,
     globalStateUpdates,
     vscode: {
+      commands: {
+        async executeCommand(command, ...args) {
+          executedCommands.push([command, ...args]);
+        },
+      },
       StatusBarAlignment: { Left: 1 },
       window: {
         activeTerminal,
@@ -64,7 +71,7 @@ function createFakeVscode({ activeTerminal, terminals = [] } = {}) {
         },
         async showInformationMessage(message, ...items) {
           informationMessages.push({ message, items });
-          return undefined;
+          return informationMessageSelection;
         },
         async showQuickPick(items) {
           quickPicks.push(items);
@@ -89,8 +96,10 @@ function createFakeVscode({ activeTerminal, terminals = [] } = {}) {
 function terminalWithPid(pid) {
   return {
     processId: Promise.resolve(pid),
+    showCalls: [],
     shown: false,
     show(preserveFocus) {
+      this.showCalls.push(preserveFocus);
       this.preserveFocus = preserveFocus;
       this.shown = true;
     },
@@ -113,6 +122,24 @@ test('manager polls JSONL events, updates status bar, and presents new unread no
   assert.equal(fake.statusBarItems[0].command, 'codexTerminal.showAgentNotifications');
   assert.deepEqual(fake.informationMessages.map((message) => message.message), [
     'Complete - Codex finished\n/tmp/project - session session-1',
+  ]);
+});
+
+test('manager flashes the matching terminal tab when presenting a notification', async () => {
+  const terminal = terminalWithPid(1234);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event())}\n`,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.deepEqual(terminal.showCalls, [true]);
+  assert.deepEqual(fake.executedCommands, [
+    ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
   ]);
 });
 
@@ -148,6 +175,34 @@ test('manager opens the latest unread matching terminal by process id and marks 
   assert.equal(await manager.openLatestAgentNotification(), true);
   assert.equal(terminal.shown, true);
   assert.equal(terminal.preserveFocus, false);
+  assert.deepEqual(terminal.showCalls, [true, false]);
+  assert.deepEqual(fake.executedCommands, [
+    ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
+    ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
+  ]);
+  assert.equal(fake.statusBarItems[0].visible, false);
+});
+
+test('manager flashes the matching terminal tab again after Open Terminal is selected', async () => {
+  const terminal = terminalWithPid(1234);
+  const fake = createFakeVscode({
+    terminals: [terminal],
+    informationMessageSelection: 'Open Terminal',
+  });
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event())}\n`,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.deepEqual(terminal.showCalls, [true, false]);
+  assert.deepEqual(fake.executedCommands, [
+    ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
+    ['codexTerminal.flashActiveTerminalTab', { durationMs: 1000 }],
+  ]);
   assert.equal(fake.statusBarItems[0].visible, false);
 });
 
