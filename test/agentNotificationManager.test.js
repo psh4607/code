@@ -121,7 +121,7 @@ test('manager polls JSONL events, updates status bar, and presents new unread no
   assert.equal(fake.statusBarItems[0].visible, true);
   assert.equal(fake.statusBarItems[0].command, 'codexTerminal.showAgentNotifications');
   assert.deepEqual(fake.informationMessages.map((message) => message.message), [
-    'Codex finished\nComplete - project - session session-1',
+    'Codex finished\nproject · session session-1 · Complete',
   ]);
 });
 
@@ -315,7 +315,7 @@ test('manager quick pick lists recent records and clear removes status', async (
   await manager.showAgentNotifications();
   assert.equal(fake.quickPicks[0][0].label, 'Codex finished');
   assert.equal(fake.quickPicks[0][0].description, 'Ready');
-  assert.equal(fake.quickPicks[0][0].detail, 'Complete - project - session session-1');
+  assert.equal(fake.quickPicks[0][0].detail, 'project · session session-1 · Complete');
 
   assert.equal(manager.clearAgentNotifications(), 1);
   assert.equal(fake.statusBarItems[0].visible, false);
@@ -337,10 +337,10 @@ test('manager formats completed notifications with the completed work as the tit
   await manager.flush();
 
   assert.deepEqual(fake.informationMessages.map((message) => message.message), [
-    '알림 문구 개선\nComplete - codex-vscode-terminal-tools - session 019f36a5',
+    '알림 문구 개선\ncodex-vscode-terminal-tools · session 019f36a5 · Complete',
   ]);
   assert.match(fake.statusBarItems[0].tooltip, /알림 문구 개선/);
-  assert.match(fake.statusBarItems[0].tooltip, /Complete - codex-vscode-terminal-tools - session 019f36a5/);
+  assert.match(fake.statusBarItems[0].tooltip, /codex-vscode-terminal-tools · session 019f36a5 · Complete/);
 });
 
 test('manager formats rich notification messages with title, metadata, and action detail', async () => {
@@ -362,10 +362,10 @@ test('manager formats rich notification messages with title, metadata, and actio
   await manager.flush();
 
   assert.deepEqual(fake.informationMessages.map((message) => message.message), [
-    'Codex needs permission\nRequest - project - session session-1\nBash: npm test',
+    'Codex needs permission: npm test\nproject · session session-1 · Request\nBash: npm test',
   ]);
-  assert.match(fake.statusBarItems[0].tooltip, /Codex needs permission/);
-  assert.match(fake.statusBarItems[0].tooltip, /Request - project - session session-1/);
+  assert.match(fake.statusBarItems[0].tooltip, /Codex needs permission: npm test/);
+  assert.match(fake.statusBarItems[0].tooltip, /project · session session-1 · Request/);
   assert.match(fake.statusBarItems[0].tooltip, /Bash: npm test/);
 });
 

@@ -93,6 +93,20 @@ function formatSessionShortId(record) {
   return record.sessionId.length <= 12 ? record.sessionId : record.sessionId.slice(0, 8);
 }
 
+function cleanNotificationText(value) {
+  return typeof value === 'string' && value.trim()
+    ? value.replace(/\s+/g, ' ').trim()
+    : undefined;
+}
+
+function truncateNotificationText(value, maxLength = 72) {
+  const text = cleanNotificationText(value);
+  if (!text || text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
 function formatProjectLabel(record) {
   if (typeof record?.subtitle === 'string' && record.subtitle.trim()) {
     return record.subtitle.trim();
@@ -104,28 +118,34 @@ function formatProjectLabel(record) {
 }
 
 function formatTitleLine(record) {
-  return typeof record?.title === 'string' && record.title.trim()
-    ? record.title.trim()
-    : notificationKindLabel(record);
+  const title = cleanNotificationText(record?.title) || notificationKindLabel(record);
+  const body = cleanNotificationText(record?.body);
+  if (
+    body &&
+    (record?.event === 'permission_requested' ||
+      record?.event === 'needs_input' ||
+      record?.event === 'error')
+  ) {
+    const bodySummary = body.replace(/^[^:\n]{1,48}:\s*/, '');
+    const summary = truncateNotificationText(bodySummary);
+    if (summary && summary !== title) {
+      return `${title}: ${summary}`;
+    }
+  }
+  return title;
 }
 
 function formatMetadataLine(record) {
   const parts = [
-    notificationKindLabel(record),
     formatProjectLabel(record),
     formatSessionShortId(record) ? `session ${formatSessionShortId(record)}` : undefined,
+    notificationKindLabel(record),
   ].filter(Boolean);
-  return parts.join(' - ');
+  return parts.join(' · ');
 }
 
 function formatDetailLine(record) {
-  const body = typeof record?.body === 'string' && record.body.trim()
-    ? record.body.trim()
-    : undefined;
-  if (body) {
-    return body;
-  }
-  return undefined;
+  return cleanNotificationText(record?.body);
 }
 
 function formatNotificationMessage(record) {
@@ -354,10 +374,10 @@ function createAgentNotificationManager(vscode, {
       label: record.title,
       description: record.body || record.subtitle || '',
       detail: [
-        notificationKindLabel(record),
         formatProjectLabel(record),
         formatSessionShortId(record) ? `session ${formatSessionShortId(record)}` : undefined,
-      ].filter(Boolean).join(' - '),
+        notificationKindLabel(record),
+      ].filter(Boolean).join(' · '),
       record,
     }));
     const selected = await vscode.window.showQuickPick(items);
