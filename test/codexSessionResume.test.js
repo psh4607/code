@@ -784,6 +784,55 @@ test('manager restores the previous Codex title when reload leaves a live sessio
   );
 });
 
+test('manager restores the previous Codex title when reload leaves only the Codex process title', async () => {
+  const restoredTitle = `dev-agent | ${SESSION_ID_A} | Fast off`;
+  const terminal = createTerminal({
+    name: 'codex',
+    cwd: '/Users/seongho/projects/seongho/projects/dev-agent',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/seongho/projects/dev-agent',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: restoredTitle,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: `/opt/homebrew/bin/codex resume ${SESSION_ID_A}` },
+    ],
+    now: () => 1000,
+    startupDelayMs: 0,
+    clearTimeout: (handle) => clearTimeout(handle.id),
+    setInterval: () => ({ unref() {} }),
+    setTimeout: (callback, delayMs) => ({ id: setTimeout(callback, delayMs) }),
+  });
+
+  manager.start();
+  await manager.flush();
+  manager.dispose();
+
+  assert.deepEqual(terminal.sentText, []);
+  assert.deepEqual(fake.executedCommands, [
+    ['workbench.action.terminal.renameWithArg', { name: restoredTitle }],
+  ]);
+  assert.equal(terminal.name, restoredTitle);
+  assert.equal(globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].title, restoredTitle);
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastRestoreDecision,
+    'skipped:codex-process-active',
+  );
+});
+
 test('manager does not auto-resume a terminal that was last observed as an idle shell', async () => {
   const terminal = createTerminal({
     name: `inf | ${SESSION_ID_A} | Fast off`,

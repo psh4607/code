@@ -129,7 +129,7 @@ function isLikelyCwdTitle(title) {
 
 function isLikelyFallbackTitle(title) {
   const trimmed = normalizeTitle(title).trim();
-  return isLikelyCwdTitle(trimmed) || /^\d+$/.test(trimmed);
+  return isLikelyCwdTitle(trimmed) || /^\d+$/.test(trimmed) || trimmed.toLowerCase() === 'codex';
 }
 
 function isRestorableTitle(title) {
