@@ -197,6 +197,7 @@ const TERMINAL_TABS_TWO_LINE_HEIGHT_MARKER =
   'super("TerminalTabsList",e,{getHeight:()=>68,getTemplateId:()=>"terminal.tabs"}';
 const TERMINAL_TABS_TWO_LINE_PADDING_MARKER = 'paddingBottom:68,dnd:l.createInstance(pft)';
 const TERMINAL_TABS_TITLE_BREAKS_MARKER = '__codexVscodeTerminalTabTitleBreaks';
+const TERMINAL_ATTACH_BY_PID_MARKER = 'codex-vscode-terminal-tools: terminal-attach-by-pid';
 const IME_GUARD_MARKER =
   '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */';
 const IME_EARLY_CAPTURE_MARKER = 'addEventListener("keydown",p,!0)';
@@ -894,6 +895,7 @@ function checkWorkbenchPatches(workbenchPath) {
     ['terminal multi-line tab height', TERMINAL_TABS_TWO_LINE_HEIGHT_MARKER],
     ['terminal multi-line tab padding', TERMINAL_TABS_TWO_LINE_PADDING_MARKER],
     ['terminal pipe title breaks', TERMINAL_TABS_TITLE_BREAKS_MARKER],
+    ['terminal attach by pid', TERMINAL_ATTACH_BY_PID_MARKER],
     ['IME guard helper', IME_GUARD_MARKER],
     ['IME early-capture hook', IME_EARLY_CAPTURE_MARKER],
     ['IME recent-composition defer', IME_RECENT_COMPOSITION_MARKER],

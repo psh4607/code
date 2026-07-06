@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   createDetachedTerminalTtlManager,
   collectDescendantPids,
+  createDetachedTerminalQuickPickItems,
 } = require('../src/detachedTerminalTtl');
 
 function createMemoryStorage(initialRecords = []) {
@@ -20,19 +21,23 @@ function createMemoryStorage(initialRecords = []) {
   };
 }
 
-function createFakeVscode({ activeTerminal } = {}) {
+function createFakeVscode({ activeTerminal, quickPickIndex } = {}) {
   const executedCommands = [];
+  const quickPickCalls = [];
   const warnings = [];
+  const information = [];
   const openedListeners = [];
 
   return {
     executedCommands,
+    information,
+    quickPickCalls,
     warnings,
     openedListeners,
     vscode: {
       commands: {
-        async executeCommand(command) {
-          executedCommands.push(command);
+        async executeCommand(command, args) {
+          executedCommands.push([command, args]);
         },
       },
       window: {
@@ -51,6 +56,16 @@ function createFakeVscode({ activeTerminal } = {}) {
         showWarningMessage(message) {
           warnings.push(message);
         },
+        showInformationMessage(message) {
+          information.push(message);
+        },
+        async showQuickPick(items, options) {
+          quickPickCalls.push({ items, options });
+          if (quickPickIndex === undefined) {
+            return undefined;
+          }
+          return items[quickPickIndex];
+        },
       },
     },
   };
@@ -60,6 +75,14 @@ function terminalWithPid(pid, title = 'zsh') {
   return {
     name: title,
     processId: Promise.resolve(pid),
+  };
+}
+
+function createAliveProcessApi() {
+  return {
+    kill() {
+      return true;
+    },
   };
 }
 
@@ -74,7 +97,7 @@ test('detach command records the active terminal pid with a one hour expiry', as
 
   await manager.detachActiveTerminal();
 
-  assert.deepEqual(fake.executedCommands, ['workbench.action.terminal.detachSession']);
+  assert.deepEqual(fake.executedCommands, [['workbench.action.terminal.detachSession', undefined]]);
   assert.deepEqual(storage.snapshot(), [
     {
       pid: 1234,
@@ -96,17 +119,174 @@ test('attach command removes the reattached terminal pid from the ttl registry',
     },
   ]);
   const activeTerminal = terminalWithPid(2222, 'reattached');
-  const fake = createFakeVscode({ activeTerminal });
+  const fake = createFakeVscode({ activeTerminal, quickPickIndex: 0 });
   const manager = createDetachedTerminalTtlManager(fake.vscode, {
     storage,
     now: () => 2000,
+    processApi: createAliveProcessApi(),
     startTimers: false,
   });
 
   await manager.attachDetachedTerminal();
 
-  assert.deepEqual(fake.executedCommands, ['workbench.action.terminal.attachToSession']);
+  assert.deepEqual(fake.quickPickCalls[0].items.map((item) => item.pid), [2222]);
+  assert.deepEqual(fake.executedCommands, [
+    ['workbench.action.terminal.attachToSession', { pid: 2222 }],
+  ]);
   assert.deepEqual(storage.snapshot(), []);
+});
+
+test('attach command sweeps expired tracked terminals before opening the attach picker', async () => {
+  const storage = createMemoryStorage([
+    {
+      pid: 1111,
+      detachedAt: 1000,
+      expiresAt: 2000,
+      title: 'expired',
+    },
+    {
+      pid: 2222,
+      detachedAt: 2000,
+      expiresAt: 8000,
+      title: 'fresh',
+    },
+  ]);
+  const killed = [];
+  const activeTerminal = terminalWithPid(2222, 'reattached');
+  const fake = createFakeVscode({ activeTerminal, quickPickIndex: 0 });
+  const manager = createDetachedTerminalTtlManager(fake.vscode, {
+    storage,
+    now: () => 3000,
+    processApi: createAliveProcessApi(),
+    startTimers: false,
+    async killTree(pid) {
+      killed.push(pid);
+      return true;
+    },
+  });
+
+  await manager.attachDetachedTerminal();
+
+  assert.deepEqual(killed, [1111]);
+  assert.deepEqual(fake.executedCommands, [
+    ['workbench.action.terminal.attachToSession', { pid: 2222 }],
+  ]);
+  assert.deepEqual(storage.snapshot(), []);
+});
+
+test('attach command shows live tracked sessions newest first with ttl expiry time', async () => {
+  const storage = createMemoryStorage([
+    {
+      pid: 1111,
+      detachedAt: 1000,
+      expiresAt: 600000,
+      title: 'older',
+    },
+    {
+      pid: 2222,
+      detachedAt: 2000,
+      expiresAt: 700000,
+      title: 'newer',
+    },
+  ]);
+  const fake = createFakeVscode({ activeTerminal: terminalWithPid(2222, 'reattached'), quickPickIndex: 0 });
+  const manager = createDetachedTerminalTtlManager(fake.vscode, {
+    storage,
+    now: () => 100000,
+    processApi: createAliveProcessApi(),
+    startTimers: false,
+    formatTime(ms) {
+      return `T${ms}`;
+    },
+  });
+
+  await manager.attachDetachedTerminal();
+
+  assert.deepEqual(
+    fake.quickPickCalls[0].items.map((item) => ({
+      label: item.label,
+      detail: item.detail,
+      pid: item.pid,
+    })),
+    [
+      {
+        label: 'newer 2222',
+        detail: 'TTL T700000까지 | 10분 남음',
+        pid: 2222,
+      },
+      {
+        label: 'older 1111',
+        detail: 'TTL T600000까지 | 9분 남음',
+        pid: 1111,
+      },
+    ],
+  );
+  assert.equal(fake.quickPickCalls[0].items[0].description, undefined);
+});
+
+test('attach command reports when no live tracked detached sessions remain', async () => {
+  const storage = createMemoryStorage([
+    {
+      pid: 1111,
+      detachedAt: 1000,
+      expiresAt: 600000,
+      title: 'dead',
+    },
+  ]);
+  const fake = createFakeVscode();
+  const manager = createDetachedTerminalTtlManager(fake.vscode, {
+    storage,
+    now: () => 100000,
+    startTimers: false,
+    processApi: {
+      kill() {
+        const error = new Error('missing');
+        error.code = 'ESRCH';
+        throw error;
+      },
+    },
+  });
+
+  await manager.attachDetachedTerminal();
+
+  assert.equal(fake.quickPickCalls.length, 0);
+  assert.deepEqual(fake.information, ['No tracked detached terminal sessions are available.']);
+  assert.deepEqual(fake.executedCommands, []);
+});
+
+test('createDetachedTerminalQuickPickItems formats ttl expiry and remaining time', () => {
+  const items = createDetachedTerminalQuickPickItems(
+    [
+      {
+        pid: 1111,
+        detachedAt: 1000,
+        expiresAt: 221000,
+        title: '',
+      },
+    ],
+    {
+      now: 100000,
+      formatTime(ms) {
+        return `T${ms}`;
+      },
+    },
+  );
+
+  assert.deepEqual(
+    items.map((item) => ({
+      label: item.label,
+      detail: item.detail,
+      pid: item.pid,
+    })),
+    [
+      {
+        label: 'Terminal 1111',
+        detail: 'TTL T221000까지 | 3분 남음',
+        pid: 1111,
+      },
+    ],
+  );
+  assert.equal(items[0].description, undefined);
 });
 
 test('opened terminal listener removes matching tracked pid', async () => {
@@ -151,6 +331,7 @@ test('sweepExpired kills only expired records and keeps fresh records', async ()
   const manager = createDetachedTerminalTtlManager(createFakeVscode().vscode, {
     storage,
     now: () => 3000,
+    processApi: createAliveProcessApi(),
     startTimers: false,
     async killTree(pid) {
       killed.push(pid);
@@ -167,6 +348,55 @@ test('sweepExpired kills only expired records and keeps fresh records', async ()
       detachedAt: 2000,
       expiresAt: 8000,
       title: 'fresh',
+    },
+  ]);
+});
+
+test('sweepExpired removes dead records even when their ttl has not expired', async () => {
+  const storage = createMemoryStorage([
+    {
+      pid: 4444,
+      detachedAt: 1000,
+      expiresAt: 8000,
+      title: 'dead fresh',
+    },
+    {
+      pid: 5555,
+      detachedAt: 2000,
+      expiresAt: 8000,
+      title: 'alive fresh',
+    },
+  ]);
+  const killed = [];
+  const manager = createDetachedTerminalTtlManager(createFakeVscode().vscode, {
+    storage,
+    now: () => 3000,
+    startTimers: false,
+    processApi: {
+      kill(pid, signal) {
+        if (signal === 0 && pid === 4444) {
+          const error = new Error('missing');
+          error.code = 'ESRCH';
+          throw error;
+        }
+        return true;
+      },
+    },
+    async killTree(pid) {
+      killed.push(pid);
+      return true;
+    },
+  });
+
+  await manager.sweepExpired();
+
+  assert.deepEqual(killed, []);
+  assert.deepEqual(storage.snapshot(), [
+    {
+      pid: 5555,
+      detachedAt: 2000,
+      expiresAt: 8000,
+      title: 'alive fresh',
     },
   ]);
 });

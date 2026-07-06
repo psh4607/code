@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   CODEX_TITLEBAR_INFO_CONTEXT_KEY,
   CODEX_TITLEBAR_INFO_TITLE_VARIABLE,
+  CODEX_TERMINAL_HAS_PULL_REQUEST_CONTEXT_KEY,
   createTitlebarInfoManager,
   findActiveWorkspaceFolder,
   findTitlebarInfoFolder,
@@ -21,8 +22,9 @@ function createWorkspaceFolder(folderPath, name = path.basename(folderPath)) {
   };
 }
 
-function terminalWithCwd(cwd) {
+function terminalWithCwd(cwd, name = 'terminal') {
   return {
+    name,
     shellIntegration: cwd
       ? {
           cwd: {
@@ -36,6 +38,9 @@ function terminalWithCwd(cwd) {
 
 function createFakeVscode({ folders = [], activeFilePath, activeTerminal } = {}) {
   const executedCommands = [];
+  const openedExternal = [];
+  const parsedUris = [];
+  const statusBarItems = [];
   const activeEditorListeners = [];
   const activeTerminalListeners = [];
   const terminalShellIntegrationListeners = [];
@@ -46,6 +51,9 @@ function createFakeVscode({ folders = [], activeFilePath, activeTerminal } = {})
     activeEditorListeners,
     activeTerminalListeners,
     executedCommands,
+    openedExternal,
+    parsedUris,
+    statusBarItems,
     terminalShellExecutionListeners,
     terminalShellIntegrationListeners,
     workspaceFolderListeners,
@@ -53,6 +61,33 @@ function createFakeVscode({ folders = [], activeFilePath, activeTerminal } = {})
       commands: {
         async executeCommand(command, ...args) {
           executedCommands.push([command, ...args]);
+          if (command === 'workbench.action.terminal.renameWithArg') {
+            const name = args[0]?.name;
+            if (name && this.activeTerminal) {
+              this.activeTerminal.name = name;
+            }
+          }
+        },
+      },
+      env: {
+        async openExternal(uri) {
+          openedExternal.push(uri);
+          return true;
+        },
+      },
+      StatusBarAlignment: {
+        Left: 1,
+      },
+      Uri: {
+        parse(value) {
+          const uri = {
+            value,
+            toString() {
+              return value;
+            },
+          };
+          parsedUris.push(uri);
+          return uri;
         },
       },
       window: {
@@ -82,6 +117,28 @@ function createFakeVscode({ folders = [], activeFilePath, activeTerminal } = {})
         onDidEndTerminalShellExecution(listener) {
           terminalShellExecutionListeners.push(listener);
           return { dispose() {} };
+        },
+        createStatusBarItem(alignment, priority) {
+          const item = {
+            alignment,
+            command: undefined,
+            disposed: false,
+            priority,
+            text: '',
+            tooltip: '',
+            visible: false,
+            dispose() {
+              this.disposed = true;
+            },
+            hide() {
+              this.visible = false;
+            },
+            show() {
+              this.visible = true;
+            },
+          };
+          statusBarItems.push(item);
+          return item;
         },
       },
       workspace: {
@@ -226,6 +283,7 @@ test('titlebar info manager registers a window title variable and publishes cont
   assert.deepEqual(fake.executedCommands, [
     ['registerWindowTitleVariable', CODEX_TITLEBAR_INFO_TITLE_VARIABLE, CODEX_TITLEBAR_INFO_CONTEXT_KEY],
     ['setContext', CODEX_TITLEBAR_INFO_CONTEXT_KEY, 'inf | main'],
+    ['setContext', CODEX_TERMINAL_HAS_PULL_REQUEST_CONTEXT_KEY, false],
   ]);
 });
 
@@ -265,8 +323,14 @@ test('titlebar info manager republishes context from the focused terminal cwd', 
   await fake.activeTerminalListeners[0](fake.vscode.window.activeTerminal);
   await manager.flush();
 
-  assert.equal(fake.executedCommands.at(-1)[0], 'setContext');
-  assert.equal(fake.executedCommands.at(-1)[2], 'dev-agent | feat/terminal-titlebar');
+  assert.equal(
+    fake.executedCommands
+      .filter(
+        ([command, key]) => command === 'setContext' && key === CODEX_TITLEBAR_INFO_CONTEXT_KEY,
+      )
+      .at(-1)[2],
+    'dev-agent | feat/terminal-titlebar',
+  );
 });
 
 test('titlebar info manager caches pull request lookups for the same repo and branch', async () => {
@@ -301,5 +365,63 @@ test('titlebar info manager caches pull request lookups for the same repo and br
   await manager.updateNow();
 
   assert.equal(ghCalls, 1);
-  assert.equal(fake.executedCommands.at(-1)[2], 'dev-agent | feat/rate-limit | PR #77');
+  assert.equal(
+    fake.executedCommands
+      .filter(
+        ([command, key]) => command === 'setContext' && key === CODEX_TITLEBAR_INFO_CONTEXT_KEY,
+      )
+      .at(-1)[2],
+    'dev-agent | feat/rate-limit | PR #77',
+  );
+});
+
+test('titlebar info manager marks the active terminal tab and status bar when a pull request exists', async () => {
+  const repoPath = '/Users/seongho/projects/dalpha/inf/oi-easy-admin';
+  const prUrl = 'https://github.com/dalphakr/dalpha-oi-admin/pull/275';
+  const fake = createFakeVscode({
+    folders: [createWorkspaceFolder(repoPath, 'oi-easy-admin')],
+    activeTerminal: terminalWithCwd(`${repoPath}/src`, '가운데 검색 바 삭제 / 업데이트'),
+  });
+  const runCommand = async (command, args) => {
+    if (command === 'git' && args.join(' ') === 'rev-parse --show-toplevel') {
+      return repoPath;
+    }
+    if (command === 'git' && args.join(' ') === 'branch --show-current') {
+      return 'fix/task-execution-history-visibility';
+    }
+    if (command === 'gh') {
+      return JSON.stringify({
+        isDraft: true,
+        number: 275,
+        state: 'OPEN',
+        url: prUrl,
+      });
+    }
+    throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+  };
+
+  const manager = createTitlebarInfoManager(fake.vscode, {
+    runCommand,
+    startTimers: false,
+  });
+
+  await manager.updateNow();
+  await manager.openCurrentPullRequest();
+
+  assert.deepEqual(
+    fake.executedCommands.find(([command]) => command === 'workbench.action.terminal.renameWithArg'),
+    ['workbench.action.terminal.renameWithArg', { name: 'PR #275 · 가운데 검색 바 삭제 / 업데이트' }],
+  );
+  assert.deepEqual(
+    fake.executedCommands.find(
+      ([command, key]) => command === 'setContext' && key === CODEX_TERMINAL_HAS_PULL_REQUEST_CONTEXT_KEY,
+    ),
+    ['setContext', CODEX_TERMINAL_HAS_PULL_REQUEST_CONTEXT_KEY, true],
+  );
+  assert.equal(fake.statusBarItems.length, 1);
+  assert.equal(fake.statusBarItems[0].visible, true);
+  assert.equal(fake.statusBarItems[0].text, '$(git-pull-request) PR #275');
+  assert.equal(fake.statusBarItems[0].tooltip, 'Open draft PR #275');
+  assert.equal(fake.statusBarItems[0].command, 'codexTerminal.openCurrentPullRequest');
+  assert.equal(fake.openedExternal[0].value, prUrl);
 });

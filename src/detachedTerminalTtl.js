@@ -59,6 +59,40 @@ function normalizeRecords(records) {
   return Array.from(unique.values()).sort((a, b) => a.detachedAt - b.detachedAt);
 }
 
+function formatDefaultTime(timestamp) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    hour12: false,
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+}
+
+function formatRemainingTime(remainingMs) {
+  const remainingMinutes = Math.max(0, Math.ceil(remainingMs / 60_000));
+  if (remainingMinutes < 60) {
+    return `${remainingMinutes}분`;
+  }
+
+  const hours = Math.floor(remainingMinutes / 60);
+  const minutes = remainingMinutes % 60;
+  return minutes === 0 ? `${hours}시간` : `${hours}시간 ${minutes}분`;
+}
+
+function createDetachedTerminalQuickPickItems(records, { now = Date.now(), formatTime } = {}) {
+  const currentTime = Number(now);
+  const formatExpiryTime = formatTime ?? formatDefaultTime;
+
+  return normalizeRecords(records)
+    .filter((record) => record.expiresAt > currentTime)
+    .sort((left, right) => right.detachedAt - left.detachedAt)
+    .map((record) => ({
+      label: `${record.title || 'Terminal'} ${record.pid}`,
+      detail: `TTL ${formatExpiryTime(record.expiresAt)}까지 | ${formatRemainingTime(record.expiresAt - currentTime)} 남음`,
+      pid: record.pid,
+      record,
+    }));
+}
+
 function execFileText(file, args, execFileImpl = execFile) {
   return new Promise((resolve, reject) => {
     execFileImpl(file, args, { encoding: 'utf8' }, (error, stdout) => {
@@ -167,6 +201,8 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
   const sweepIntervalMs = options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
   const now = options.now ?? Date.now;
+  const processApi = options.processApi ?? process;
+  const formatTime = options.formatTime ?? formatDefaultTime;
   const storage = options.storage ?? createGlobalStateStorage(options.context);
   const setIntervalFn = options.setInterval ?? setInterval;
   const clearIntervalFn = options.clearInterval ?? clearInterval;
@@ -176,7 +212,7 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
     options.killTree ??
     createDefaultKillTree({
       execFileImpl: options.execFile,
-      processApi: options.processApi,
+      processApi,
       sleep: options.sleep,
       killGraceMs: options.killGraceMs,
     });
@@ -239,8 +275,31 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
   }
 
   async function attachDetachedTerminal() {
-    await vscode.commands.executeCommand('workbench.action.terminal.attachToSession');
-    await removeTerminalPid(vscode.window.activeTerminal);
+    await sweepExpired();
+    const records = (await readRecords()).filter((record) => isProcessAlive(record.pid, processApi));
+    const items = createDetachedTerminalQuickPickItems(records, {
+      now: now(),
+      formatTime,
+    });
+
+    if (items.length === 0) {
+      vscode.window.showInformationMessage?.('No tracked detached terminal sessions are available.');
+      return;
+    }
+
+    const selected = await vscode.window.showQuickPick(items, {
+      canPickMany: false,
+      placeHolder: 'Attach detached terminal session',
+    });
+
+    if (!selected) {
+      return;
+    }
+
+    await vscode.commands.executeCommand('workbench.action.terminal.attachToSession', {
+      pid: selected.pid,
+    });
+    await removePid(selected.pid);
   }
 
   async function killRecords(records) {
@@ -263,8 +322,9 @@ function createDetachedTerminalTtlManager(vscode, options = {}) {
   async function sweepExpired() {
     const currentTime = now();
     const records = await readRecords();
-    const expired = records.filter((record) => record.expiresAt <= currentTime);
-    const fresh = records.filter((record) => record.expiresAt > currentTime);
+    const liveRecords = records.filter((record) => isProcessAlive(record.pid, processApi));
+    const expired = liveRecords.filter((record) => record.expiresAt <= currentTime);
+    const fresh = liveRecords.filter((record) => record.expiresAt > currentTime);
 
     if (expired.length === 0) {
       await writeRecords(fresh);
@@ -352,6 +412,7 @@ module.exports = {
   STORAGE_KEY,
   collectDescendantPids,
   createDefaultKillTree,
+  createDetachedTerminalQuickPickItems,
   createDetachedTerminalTtlManager,
   parsePsRows,
 };

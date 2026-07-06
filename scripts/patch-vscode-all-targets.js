@@ -73,6 +73,12 @@ function allPatchSteps(target) {
       },
     },
     {
+      script: 'patch-vscode-terminal-attach-by-pid.js',
+      env: {
+        VSCODE_WORKBENCH_MAIN: target.workbenchPath,
+      },
+    },
+    {
       script: 'patch-vscode-ime-guard.js',
       env: {
         VSCODE_WORKBENCH_MAIN: target.workbenchPath,

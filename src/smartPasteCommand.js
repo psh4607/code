@@ -1,4 +1,6 @@
 const childProcess = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const DEFAULT_TERMINAL_PASTE_COMMAND = 'workbench.action.terminal.paste';
@@ -102,17 +104,86 @@ function createMacClipboardImageDetector({
   };
 }
 
+function defaultClipboardImagePath({ now = Date.now, tmpdir = os.tmpdir } = {}) {
+  const timestamp = new Date(now()).toISOString().replace(/[:.]/g, '-');
+  return path.join(
+    tmpdir(),
+    'codex-vscode-terminal-tools',
+    `clipboard-image-${timestamp}-${process.pid}.png`,
+  );
+}
+
+function createMacClipboardImageFileWriter({
+  execFile = childProcess.execFile,
+  platform = process.platform,
+  now = Date.now,
+  tmpdir = os.tmpdir,
+} = {}) {
+  return async function writeClipboardImageFile() {
+    if (platform !== 'darwin') {
+      return undefined;
+    }
+
+    const imagePath = defaultClipboardImagePath({ now, tmpdir });
+    fs.mkdirSync(path.dirname(imagePath), { recursive: true });
+    await execFileText(
+      execFile,
+      'osascript',
+      [
+        '-e',
+        'set outputPath to POSIX file (system attribute "CODEX_VSCODE_CLIPBOARD_IMAGE_PATH")',
+        '-e',
+        'try',
+        '-e',
+        'set pngData to the clipboard as «class PNGf»',
+        '-e',
+        'set fileRef to open for access outputPath with write permission',
+        '-e',
+        'set eof fileRef to 0',
+        '-e',
+        'write pngData to fileRef',
+        '-e',
+        'close access fileRef',
+        '-e',
+        'on error errMsg number errNum',
+        '-e',
+        'try',
+        '-e',
+        'close access outputPath',
+        '-e',
+        'end try',
+        '-e',
+        'error errMsg number errNum',
+        '-e',
+        'end try',
+      ],
+      {
+        env: {
+          ...process.env,
+          CODEX_VSCODE_CLIPBOARD_IMAGE_PATH: imagePath,
+        },
+        maxBuffer: 1024 * 1024,
+        timeout: 1000,
+      },
+    );
+
+    return imagePath;
+  };
+}
+
 function createSmartPasteCommand(
   vscode,
   {
     getClipboardVideoFilePath = createMacClipboardVideoFileDetector(),
     hasClipboardImage = createMacClipboardImageDetector(),
+    writeClipboardImageFile = createMacClipboardImageFileWriter(),
     terminalPasteCommand = DEFAULT_TERMINAL_PASTE_COMMAND,
   } = {},
 ) {
   return async function smartPaste() {
     let clipboardVideoFilePath;
     let clipboardHasImage = false;
+    let clipboardImageFilePath;
 
     try {
       clipboardVideoFilePath = await getClipboardVideoFilePath();
@@ -132,8 +203,16 @@ function createSmartPasteCommand(
     }
 
     if (clipboardHasImage && vscode.window.activeTerminal) {
-      await vscode.commands.executeCommand(terminalPasteCommand);
-      return;
+      try {
+        clipboardImageFilePath = await writeClipboardImageFile();
+      } catch {
+        clipboardImageFilePath = undefined;
+      }
+
+      if (clipboardImageFilePath) {
+        vscode.window.activeTerminal.sendText(String(clipboardImageFilePath), false);
+        return;
+      }
     }
 
     await vscode.commands.executeCommand(terminalPasteCommand);
@@ -142,6 +221,7 @@ function createSmartPasteCommand(
 
 module.exports = {
   clipboardInfoHasImage,
+  createMacClipboardImageFileWriter,
   createMacClipboardImageDetector,
   createMacClipboardVideoFileDetector,
   createSmartPasteCommand,

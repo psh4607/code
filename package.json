@@ -14,7 +14,8 @@
     "onCommand:codexTerminal.renameThread",
     "onCommand:codexTerminal.smartPaste",
     "onCommand:codexTerminal.detachWithTtl",
-    "onCommand:codexTerminal.attachDetachedSession"
+    "onCommand:codexTerminal.attachDetachedSession",
+    "onCommand:codexTerminal.openCurrentPullRequest"
   ],
   "contributes": {
     "configuration": {
@@ -75,8 +76,21 @@
       {
         "command": "codexTerminal.attachDetachedSession",
         "title": "Codex: Attach Detached Terminal"
+      },
+      {
+        "command": "codexTerminal.openCurrentPullRequest",
+        "title": "Codex: Open Current Pull Request"
       }
     ],
+    "menus": {
+      "terminal/context": [
+        {
+          "command": "codexTerminal.openCurrentPullRequest",
+          "group": "navigation",
+          "when": "codexTerminal.hasPullRequest"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "codexTerminal.renameThread",
@@ -89,6 +103,11 @@
         "key": "cmd+v",
         "mac": "cmd+v",
         "when": "terminalFocus"
+      },
+      {
+        "command": "codexTerminal.attachDetachedSession",
+        "key": "cmd+shift+t",
+        "mac": "cmd+shift+t"
       }
     ]
   },
@@ -102,6 +121,7 @@
     "patch:vscode-dock-icon": "node scripts/patch-vscode-all-targets.js --only patch-vscode-dock-icon.js --only sign-vscode-app.js",
     "patch:vscode-icon": "node scripts/patch-vscode-all-targets.js --only patch-vscode-icon.js --only sign-vscode-app.js",
     "patch:vscode-ime-guard": "node scripts/patch-vscode-all-targets.js --only patch-vscode-ime-guard.js --only sign-vscode-app.js",
+    "patch:vscode-terminal-attach-by-pid": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-attach-by-pid.js --only sign-vscode-app.js",
     "patch:vscode-opaque-overlays": "node scripts/patch-vscode-all-targets.js --only patch-vscode-opaque-overlays.js --only sign-vscode-app.js",
     "patch:vscode-titlebar-center": "node scripts/patch-vscode-all-targets.js --only patch-vscode-titlebar-center.js --only sign-vscode-app.js",
     "patch:vscode-terminal-order": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-order.js --only sign-vscode-app.js",

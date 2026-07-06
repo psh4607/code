@@ -629,6 +629,7 @@ test('checkWorkbenchPatches requires the IME terminal sendSequence hooks', () =>
       'super("TerminalTabsList",e,{getHeight:()=>68,getTemplateId:()=>"terminal.tabs"}',
       'paddingBottom:68,dnd:l.createInstance(pft)',
       '__codexVscodeTerminalTabTitleBreaks',
+      'codex-vscode-terminal-tools: terminal-attach-by-pid',
       '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */',
       '_dispatch(e,t){let o=this.resolveKeyboardEvent(e),n=globalThis.__codexVscodeImeGuard?.defer?.(e,t,()=>this._doDispatch(o,t,!1));return n!==void 0?n:this._doDispatch(o,t,!1)}',
     ].join('\n'),

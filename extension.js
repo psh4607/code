@@ -13,7 +13,10 @@ const {
   createTerminalCwdColorManager,
 } = require('./src/terminalCwdColor');
 const { createSmartPasteCommand } = require('./src/smartPasteCommand');
-const { createTitlebarInfoManager } = require('./src/titlebarInfo');
+const {
+  OPEN_CURRENT_PULL_REQUEST_COMMAND,
+  createTitlebarInfoManager,
+} = require('./src/titlebarInfo');
 
 let detachedTerminalTtlManager;
 let codexSessionResumeManager;
@@ -66,6 +69,10 @@ function activate(context) {
     vscode.commands.registerCommand(
       'codexTerminal.rememberCwdColor',
       terminalCwdColorManager.rememberCwdColor,
+    ),
+    vscode.commands.registerCommand(
+      OPEN_CURRENT_PULL_REQUEST_COMMAND,
+      titlebarInfoManager.openCurrentPullRequest,
     ),
   );
 }

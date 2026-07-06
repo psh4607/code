@@ -198,6 +198,11 @@ inf | main | PR #123
 GitHub PR lookups are cached for five minutes per repo and branch, so terminal focus changes and
 periodic refreshes do not call `gh pr view` on every titlebar update.
 
+When a PR is found for the active terminal, the extension prefixes that terminal tab with `PR #123 ·`
+so the PR-bearing session is visible in the terminal list. It also shows a `PR #123` status bar item
+and exposes `Codex: Open Current Pull Request` from the command palette and terminal context menu.
+The status bar item and command open the current PR URL from `gh pr view`.
+
 The local CSS patch still hides the agent status controls while leaving the rest of the workbench
 intact:
 
@@ -288,7 +293,8 @@ The extension binds `Cmd+V` in the integrated terminal to `codexTerminal.smartPa
 On macOS it checks clipboard type metadata with `osascript -e 'clipboard info'`.
 If the clipboard contains a copied video file such as `.mov`, `.mp4`, `.mkv`, or `.webm`, it reads the clipboard file URL and inserts the shell-quoted POSIX path into the active terminal without pressing Enter.
 Video file detection runs before image detection because Finder can expose preview image flavors for copied media files.
-If the clipboard contains an image flavor such as PNG, TIFF, JPEG, GIF, or HEIC, it delegates to VS Code's terminal paste command so Codex receives the normal image paste path.
+If the clipboard contains an image flavor such as PNG, TIFF, JPEG, GIF, or HEIC, it writes the PNG clipboard flavor to a temp file under `codex-vscode-terminal-tools` in the macOS temp directory, then inserts that absolute `.png` path into the active terminal without pressing Enter.
+This avoids VS Code's terminal paste command for bitmap clips because the command reads text and file resources, not raw image clipboard flavors.
 Otherwise it delegates to VS Code's normal `workbench.action.terminal.paste`, so text paste stays unchanged.
 
 ## Cwd-Based Terminal Tab Color
