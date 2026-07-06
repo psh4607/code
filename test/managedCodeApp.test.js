@@ -19,6 +19,13 @@ const {
   shouldRefreshManagedApp,
 } = require('../src/managedCodeApp');
 
+const ensureManagedCodeAppScriptPath = path.join(
+  __dirname,
+  '..',
+  'scripts',
+  'ensure-managed-code-app.js',
+);
+
 function writeInfoPlist(infoPlistPath, info = {}) {
   fs.mkdirSync(path.dirname(infoPlistPath), { recursive: true });
   fs.writeFileSync(
@@ -329,4 +336,32 @@ test('checkManagedCodeApp reports missing and current managed app states', () =>
     ok: true,
     detail: 'managed Code.app is current',
   });
+});
+
+test('package exposes a standalone managed Code app ensure script', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
+  assert.equal(packageJson.scripts['ensure:code-app'], 'node scripts/ensure-managed-code-app.js');
+});
+
+test('ensure-managed-code-app script creates only the managed app bundle', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-managed-code-app-script-test-'));
+  const sourceAppPath = path.join(tmpDir, 'Visual Studio Code.app');
+  const managedAppPath = path.join(tmpDir, 'Code.app');
+  makeApp(sourceAppPath);
+
+  const result = childProcess.spawnSync(process.execPath, [ensureManagedCodeAppScriptPath], {
+    env: {
+      ...process.env,
+      VSCODE_SOURCE_APP_PATH: sourceAppPath,
+      VSCODE_APP_PATH: managedAppPath,
+    },
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /updated managedCodeApp: managed app missing/);
+  assert.doesNotMatch(result.stdout, /== Patching /);
+  assert.equal(readAppInfo(managedAppPath).bundleId, MANAGED_BUNDLE_ID);
+  assert.equal(fs.existsSync(path.join(managedAppPath, 'Contents', 'Resources', 'Code.icns')), false);
 });

@@ -16,6 +16,7 @@ const MANAGED_APPLY_TO_ALL_PROFILES = [
   'terminal.integrated.persistentSessionReviveProcess',
   'terminal.integrated.commandsToSkipShell',
   'workbench.browser.openLocalhostLinks',
+  'workbench.secondarySideBar.defaultVisibility',
 ];
 
 const MANAGED_SETTINGS = {
@@ -29,6 +30,7 @@ const MANAGED_SETTINGS = {
   'terminal.integrated.enablePersistentSessions': true,
   'terminal.integrated.persistentSessionReviveProcess': 'onExitAndWindowClose',
   'terminal.integrated.splitCwd': 'inherited',
+  'workbench.secondarySideBar.defaultVisibility': 'hidden',
   'editor.cursorStyle': 'block',
   'terminal.integrated.cursorStyle': 'block',
 };

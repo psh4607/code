@@ -22,6 +22,13 @@ Reapply the full managed setup:
 npm run apply
 ```
 
+Create or refresh only the managed `/Applications/Code.app` bundle, without applying user settings
+or bundle patches:
+
+```sh
+npm run ensure:code-app
+```
+
 `npm run apply` manages:
 
 - The managed `/Applications/Code.app` bundle, copied from `/Applications/Visual Studio Code.app`

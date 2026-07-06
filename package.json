@@ -95,6 +95,7 @@
   "scripts": {
     "apply": "node scripts/apply-host-config.js",
     "doctor": "node scripts/doctor.js",
+    "ensure:code-app": "node scripts/ensure-managed-code-app.js",
     "patch": "node scripts/patch-vscode-all-targets.js",
     "patch:managed-code-sign": "node scripts/sign-managed-code-app.js",
     "patch:vscode-sign": "node scripts/patch-vscode-all-targets.js --only sign-vscode-app.js",

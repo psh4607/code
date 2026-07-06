@@ -104,6 +104,7 @@ test('normalizeSettings applies managed VS Code settings without dropping existi
   assert.equal(value['update.mode'], 'none');
   assert.equal(value['terminal.integrated.splitCwd'], 'inherited');
   assert.equal(value['terminal.integrated.tabs.focusMode'], 'singleClick');
+  assert.equal(value['workbench.secondarySideBar.defaultVisibility'], 'hidden');
   assert.equal(
     value['terminal.integrated.persistentSessionReviveProcess'],
     'onExitAndWindowClose',
@@ -123,6 +124,12 @@ test('normalizeSettings applies managed VS Code settings without dropping existi
   );
   assert.equal(
     value['workbench.settings.applyToAllProfiles'].includes('terminal.integrated.commandsToSkipShell'),
+    true,
+  );
+  assert.equal(
+    value['workbench.settings.applyToAllProfiles'].includes(
+      'workbench.secondarySideBar.defaultVisibility',
+    ),
     true,
   );
   assert.equal(
