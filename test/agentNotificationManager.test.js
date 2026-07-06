@@ -90,7 +90,8 @@ function terminalWithPid(pid) {
   return {
     processId: Promise.resolve(pid),
     shown: false,
-    show() {
+    show(preserveFocus) {
+      this.preserveFocus = preserveFocus;
       this.shown = true;
     },
   };
@@ -111,7 +112,7 @@ test('manager polls JSONL events, updates status bar, and presents new unread no
   assert.equal(fake.statusBarItems[0].visible, true);
   assert.equal(fake.statusBarItems[0].command, 'codexTerminal.showAgentNotifications');
   assert.deepEqual(fake.informationMessages.map((message) => message.message), [
-    'Codex finished',
+    'Complete - Codex finished\n/tmp/project - session session-1',
   ]);
 });
 
@@ -146,7 +147,69 @@ test('manager opens the latest unread matching terminal by process id and marks 
 
   assert.equal(await manager.openLatestAgentNotification(), true);
   assert.equal(terminal.shown, true);
+  assert.equal(terminal.preserveFocus, false);
   assert.equal(fake.statusBarItems[0].visible, false);
+});
+
+test('manager opens the matching Codex session terminal from the session registry when event pid is missing', async () => {
+  const terminal = terminalWithPid(4321);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createAgentNotificationManager(fake.vscode, {
+    context: fake.context,
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event({ terminalPid: undefined }))}\n`,
+    readSessionRegistry: () => ({
+      version: 1,
+      records: [
+        {
+          sessionId: 'session-1',
+          terminalPid: 4321,
+          cwd: '/tmp/project',
+          hookEventName: 'SessionStart',
+          updatedAt: 900,
+        },
+      ],
+    }),
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.equal(await manager.openLatestAgentNotification(), true);
+  assert.equal(terminal.shown, true);
+  assert.equal(terminal.preserveFocus, false);
+  assert.equal(fake.statusBarItems[0].visible, false);
+});
+
+test('manager falls back to the Codex session registry when the event pid is stale', async () => {
+  const terminal = terminalWithPid(4321);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createAgentNotificationManager(fake.vscode, {
+    context: fake.context,
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event({ terminalPid: 1111 }))}\n`,
+    readSessionRegistry: () => ({
+      version: 1,
+      records: [
+        {
+          sessionId: 'session-1',
+          terminalPid: 4321,
+          cwd: '/tmp/project',
+          hookEventName: 'SessionStart',
+          updatedAt: 900,
+        },
+      ],
+    }),
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.equal(await manager.openLatestAgentNotification(), true);
+  assert.equal(terminal.shown, true);
+  assert.equal(terminal.preserveFocus, false);
 });
 
 test('manager quick pick lists recent records and clear removes status', async () => {
@@ -162,9 +225,35 @@ test('manager quick pick lists recent records and clear removes status', async (
   await manager.showAgentNotifications();
   assert.equal(fake.quickPicks[0][0].label, 'Codex finished');
   assert.equal(fake.quickPicks[0][0].description, 'Ready');
+  assert.equal(fake.quickPicks[0][0].detail, 'Complete - /tmp/project - session session-1');
 
   assert.equal(manager.clearAgentNotifications(), 1);
   assert.equal(fake.statusBarItems[0].visible, false);
+});
+
+test('manager formats rich notification messages with status, project, and action detail', async () => {
+  const fake = createFakeVscode();
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event({
+      event: 'permission_requested',
+      severity: 'waiting',
+      title: 'Codex needs permission',
+      subtitle: 'project',
+      body: 'Bash: npm test',
+      source: { hookEventName: 'PermissionRequest', toolName: 'Bash' },
+    }))}\n`,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.deepEqual(fake.informationMessages.map((message) => message.message), [
+    'Request - project - Codex needs permission\nBash: npm test',
+  ]);
+  assert.match(fake.statusBarItems[0].tooltip, /Request - project - Codex needs permission/);
+  assert.match(fake.statusBarItems[0].tooltip, /Bash: npm test/);
 });
 
 test('manager restores unread records from global state without replaying seen events', async () => {

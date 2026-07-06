@@ -11,6 +11,12 @@ const DEFAULT_EVENTS_PATH = path.join(
   'notifications',
   'events.jsonl',
 );
+const DEFAULT_SESSION_REGISTRY_PATH = path.join(
+  os.homedir(),
+  '.codex',
+  'codex-vscode-terminal-tools',
+  'session-registry.json',
+);
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const SHOW_AGENT_NOTIFICATIONS_COMMAND = 'codexTerminal.showAgentNotifications';
 const OPEN_LATEST_AGENT_NOTIFICATION_COMMAND = 'codexTerminal.openLatestAgentNotification';
@@ -25,6 +31,14 @@ function readFileDefault(filePath) {
     return fs.readFileSync(filePath, 'utf8');
   } catch {
     return '';
+  }
+}
+
+function readSessionRegistryDefault() {
+  try {
+    return JSON.parse(fs.readFileSync(DEFAULT_SESSION_REGISTRY_PATH, 'utf8'));
+  } catch {
+    return { records: [] };
   }
 }
 
@@ -57,8 +71,58 @@ function formatStatusText(latestUnread, unreadCount) {
   return `${provider}: ${unreadCount}`;
 }
 
+function notificationKindLabel(record) {
+  if (record?.event === 'permission_requested' || record?.event === 'needs_input') {
+    return 'Request';
+  }
+  if (record?.event === 'turn_finished' && record?.severity === 'success') {
+    return 'Complete';
+  }
+  if (record?.event === 'error' || record?.severity === 'error') {
+    return 'Error';
+  }
+  return 'Update';
+}
+
+function formatSessionShortId(record) {
+  if (typeof record?.sessionId !== 'string' || !record.sessionId) {
+    return undefined;
+  }
+  return record.sessionId.length <= 12 ? record.sessionId : record.sessionId.slice(0, 8);
+}
+
+function formatSummaryLine(record) {
+  const parts = [
+    notificationKindLabel(record),
+    record?.subtitle,
+    record?.title,
+  ].filter(Boolean);
+  return parts.join(' - ');
+}
+
+function formatDetailLine(record) {
+  const body = typeof record?.body === 'string' && record.body.trim()
+    ? record.body.trim()
+    : undefined;
+  if (body) {
+    return body;
+  }
+
+  const details = [
+    record?.cwd,
+    formatSessionShortId(record) ? `session ${formatSessionShortId(record)}` : undefined,
+  ].filter(Boolean);
+  return details.join(' - ');
+}
+
+function formatNotificationMessage(record) {
+  const summary = formatSummaryLine(record);
+  const detail = formatDetailLine(record);
+  return detail ? `${summary}\n${detail}` : summary;
+}
+
 function formatTooltip(record, unreadCount) {
-  const text = [record?.title, record?.body || record?.subtitle].filter(Boolean).join('\n');
+  const text = formatNotificationMessage(record);
   return text ? `${unreadCount} unread\n${text}` : `${unreadCount} unread agent notification(s)`;
 }
 
@@ -67,11 +131,38 @@ function readStoredArray(context, key) {
   return Array.isArray(value) ? value : [];
 }
 
+function normalizePid(value) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 1 ? parsed : undefined;
+}
+
+function normalizeSessionRegistryRecords(source) {
+  const records = Array.isArray(source) ? source : source?.records;
+  return (Array.isArray(records) ? records : [])
+    .map((record) => {
+      const sessionId = typeof record?.sessionId === 'string' && record.sessionId
+        ? record.sessionId
+        : undefined;
+      const terminalPidValue = normalizePid(record?.terminalPid ?? record?.processId);
+      if (!sessionId || !terminalPidValue) {
+        return undefined;
+      }
+      return {
+        sessionId,
+        terminalPid: terminalPidValue,
+        updatedAt: Number.isFinite(Number(record.updatedAt)) ? Number(record.updatedAt) : 0,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
 function createAgentNotificationManager(vscode, {
   context,
   eventsPath = DEFAULT_EVENTS_PATH,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   readFile = readFileDefault,
+  readSessionRegistry = readSessionRegistryDefault,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
   store,
@@ -111,11 +202,23 @@ function createAgentNotificationManager(vscode, {
   }
 
   async function findTerminalForRecord(record) {
-    if (!record?.terminalPid) {
+    const expectedPids = [];
+    if (record?.terminalPid) {
+      expectedPids.push(record.terminalPid);
+    }
+    if (record?.sessionId) {
+      const registryPid = normalizeSessionRegistryRecords(readSessionRegistry())
+        .find((registryRecord) => registryRecord.sessionId === record.sessionId)
+        ?.terminalPid;
+      if (registryPid && !expectedPids.includes(registryPid)) {
+        expectedPids.push(registryPid);
+      }
+    }
+    if (expectedPids.length === 0) {
       return undefined;
     }
     for (const terminal of uniqueTerminals(vscode)) {
-      if ((await terminalPid(terminal)) === record.terminalPid) {
+      if (expectedPids.includes(await terminalPid(terminal))) {
         return terminal;
       }
     }
@@ -135,7 +238,7 @@ function createAgentNotificationManager(vscode, {
     if (!terminal) {
       return false;
     }
-    terminal.show();
+    terminal.show(false);
     if (notificationStore.markRead(record.id)) {
       persistState();
     }
@@ -145,7 +248,7 @@ function createAgentNotificationManager(vscode, {
 
   async function presentRecord(record) {
     const selected = await vscode.window.showInformationMessage(
-      record.body ? `${record.title}: ${record.body}` : record.title,
+      formatNotificationMessage(record),
       'Open Terminal',
       'Mark Read',
     );
@@ -209,7 +312,11 @@ function createAgentNotificationManager(vscode, {
     const items = notificationStore.records().map((record) => ({
       label: record.title,
       description: record.body || record.subtitle || '',
-      detail: record.cwd || record.sessionId || '',
+      detail: [
+        notificationKindLabel(record),
+        record.cwd,
+        formatSessionShortId(record) ? `session ${formatSessionShortId(record)}` : undefined,
+      ].filter(Boolean).join(' - '),
       record,
     }));
     const selected = await vscode.window.showQuickPick(items);
@@ -259,6 +366,7 @@ function createAgentNotificationManager(vscode, {
 module.exports = {
   CLEAR_AGENT_NOTIFICATIONS_COMMAND,
   DEFAULT_EVENTS_PATH,
+  DEFAULT_SESSION_REGISTRY_PATH,
   RECORDS_STORAGE_KEY,
   SEEN_EVENT_IDS_STORAGE_KEY,
   MARK_AGENT_NOTIFICATIONS_READ_COMMAND,
