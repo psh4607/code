@@ -13,6 +13,7 @@ const DEFAULT_SESSION_REGISTRY_PATH = path.join(
   'codex-vscode-terminal-tools',
   'session-registry.json',
 );
+const DEFAULT_CODEX_HOME_PATH = path.join(os.homedir(), '.codex');
 const SESSION_ID_RE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
 
@@ -275,6 +276,76 @@ function createDefaultLoadSessionRegistryRecords(registryPath = DEFAULT_SESSION_
   };
 }
 
+function sessionIndexContainsSessionId(indexPath, sessionId) {
+  let source;
+  try {
+    source = fs.readFileSync(indexPath, 'utf8');
+  } catch {
+    return false;
+  }
+
+  for (const line of source.split('\n')) {
+    if (!line.includes(sessionId)) {
+      continue;
+    }
+
+    try {
+      const entry = JSON.parse(line);
+      if (extractCodexSessionId(entry?.id ?? entry?.sessionId ?? entry?.thread_id) === sessionId) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function sessionFilenameExists(rootPath, sessionId) {
+  const sessionsPath = path.join(rootPath, 'sessions');
+  const stack = [sessionsPath];
+
+  while (stack.length) {
+    const currentPath = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(currentPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+      } else if (entry.isFile() && entry.name.toLowerCase().includes(sessionId)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function createDefaultHasSavedSession(
+  codexHomePath = process.env.CODEX_HOME || DEFAULT_CODEX_HOME_PATH,
+) {
+  return async function hasSavedSession(sessionId) {
+    const normalizedSessionId = extractCodexSessionId(sessionId);
+    if (!normalizedSessionId) {
+      return false;
+    }
+
+    return (
+      sessionIndexContainsSessionId(
+        path.join(codexHomePath, 'session_index.jsonl'),
+        normalizedSessionId,
+      ) || sessionFilenameExists(codexHomePath, normalizedSessionId)
+    );
+  };
+}
+
 function normalizeRecords(records) {
   const bySessionId = new Map();
 
@@ -432,6 +503,8 @@ function createCodexSessionResumeManager(vscode, options = {}) {
   const now = options.now ?? Date.now;
   const storage = options.storage ?? createGlobalStateStorage(options.context);
   const listProcesses = options.listProcesses ?? createDefaultListProcesses(options.execFile);
+  const hasSavedSession =
+    options.hasSavedSession ?? createDefaultHasSavedSession(options.codexHomePath);
   const loadSessionRegistryRecords =
     options.loadSessionRegistryRecords ??
     createDefaultLoadSessionRegistryRecords(options.sessionRegistryPath);
@@ -466,6 +539,15 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     } catch (error) {
       log.warn?.('Failed to read Codex session registry', error);
       return [];
+    }
+  }
+
+  async function canResumeSavedSession(sessionId) {
+    try {
+      return await hasSavedSession(sessionId);
+    } catch (error) {
+      log.warn?.('Failed to verify saved Codex session before resume', error);
+      return true;
     }
   }
 
@@ -801,6 +883,23 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         continue;
       }
 
+      if (!(await canResumeSavedSession(record.sessionId))) {
+        upsertRestoreDecisionRecord(
+          updatedRecords,
+          record,
+          terminal,
+          terminalIndex,
+          'skipped:missing-saved-session',
+          restoreCheckedAt,
+          {
+            codexProcessActive: false,
+            lastCodexProcessCheckAt: restoreCheckedAt,
+            processId: safety.processId,
+          },
+        );
+        continue;
+      }
+
       terminal.sendText(`codex resume ${record.sessionId}`, true);
       resumedThisActivation.add(record.sessionId);
 
@@ -950,6 +1049,7 @@ module.exports = {
   CODEX_SESSION_RESUME_STORAGE_KEY,
   collectProcessTreeRows,
   createCodexSessionResumeManager,
+  createDefaultHasSavedSession,
   extractCodexResumeSessionId,
   extractCodexSessionId,
   isCodexProcessCommand,

@@ -1,8 +1,12 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 const {
   CODEX_SESSION_RESUME_STORAGE_KEY,
   createCodexSessionResumeManager,
+  createDefaultHasSavedSession,
   extractCodexResumeSessionId,
   extractCodexSessionId,
   isCodexProcessCommand,
@@ -12,6 +16,7 @@ const {
 
 const SESSION_ID_A = '019f2643-b7b8-76b2-baed-9faae1f809fd';
 const SESSION_ID_B = '019f2643-1747-77e3-a2c8-8feb72a510a6';
+const HAS_SAVED_SESSION = async () => true;
 
 function createGlobalState(initialRecords = []) {
   return {
@@ -165,6 +170,40 @@ test('isCodexProcessCommand detects the CLI but ignores Codex app helper process
   );
 });
 
+test('default saved session checker reads the Codex session index', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-session-index-test-'));
+  try {
+    fs.writeFileSync(
+      path.join(tmpDir, 'session_index.jsonl'),
+      `${JSON.stringify({ id: SESSION_ID_A, thread_name: 'saved' })}\n`,
+    );
+    const hasSavedSession = createDefaultHasSavedSession(tmpDir);
+
+    assert.equal(await hasSavedSession(SESSION_ID_A), true);
+    assert.equal(await hasSavedSession(SESSION_ID_B), false);
+  } finally {
+    fs.rmSync(tmpDir, { force: true, recursive: true });
+  }
+});
+
+test('default saved session checker falls back to session filenames', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-session-file-test-'));
+  try {
+    const sessionDir = path.join(tmpDir, 'sessions', '2026', '07', '06');
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionDir, `rollout-2026-07-06T12-00-47-${SESSION_ID_A}.jsonl`),
+      '',
+    );
+    const hasSavedSession = createDefaultHasSavedSession(tmpDir);
+
+    assert.equal(await hasSavedSession(SESSION_ID_A), true);
+    assert.equal(await hasSavedSession(SESSION_ID_B), false);
+  } finally {
+    fs.rmSync(tmpDir, { force: true, recursive: true });
+  }
+});
+
 test('manager snapshots Codex terminal metadata in tab order', async () => {
   const globalState = createGlobalState();
   const first = createTerminal({
@@ -316,6 +355,7 @@ test('manager auto-resumes a restored shell from the matching stored Codex recor
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     now: () => 1000,
     startTimers: false,
@@ -340,6 +380,7 @@ test('manager auto-resumes an idle shell from a hook registry pid match', async 
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     loadSessionRegistryRecords: async () => [
       {
@@ -464,6 +505,7 @@ test('manager auto-resumes an idle shell when the restored title directly expose
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     now: () => 1000,
     startTimers: false,
@@ -505,6 +547,7 @@ test('manager auto-resumes the latest same-tab same-cwd Codex record when restor
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     now: () => 1000,
     startTimers: false,
@@ -516,6 +559,42 @@ test('manager auto-resumes the latest same-tab same-cwd Codex record when restor
   assert.equal(
     globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][1].lastRestoreDecision,
     'sent',
+  );
+});
+
+test('manager skips auto-resume when the saved Codex session is missing', async () => {
+  const terminal = createTerminal({
+    name: '~/projects/dalpha/inf',
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 601,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    hasSavedSession: async () => false,
+    listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.restoreCodexSessions();
+
+  assert.deepEqual(terminal.sentText, []);
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastRestoreDecision,
+    'skipped:missing-saved-session',
   );
 });
 
@@ -540,6 +619,7 @@ test('manager does not auto-resume a cwd title from a different tab index', asyn
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     now: () => 1000,
     startTimers: false,
@@ -609,6 +689,7 @@ test('manager does not auto-resume a terminal that was last observed as an idle 
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     now: () => 1000,
     startTimers: false,
@@ -749,6 +830,7 @@ test('manager startup does not clear a previous active Codex record before resto
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     now: () => 1000,
     startupDelayMs: 0,
@@ -784,6 +866,7 @@ test('manager retries auto-resume when shell integration arrives after startup',
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     now: () => 1000,
     startTimers: false,
@@ -823,6 +906,7 @@ test('manager retries auto-resume when terminal process state arrives after star
   const fake = createFakeVscode({ terminals: [terminal] });
   const manager = createCodexSessionResumeManager(fake.vscode, {
     context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
     listProcesses: async () => [{ pid: 101, ppid: 1, command: '/bin/zsh -l' }],
     now: () => 1000,
     startTimers: false,
