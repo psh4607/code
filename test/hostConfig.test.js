@@ -48,11 +48,8 @@ test('createDefaultPaths targets managed Code and upstream VS Code bundle patche
   );
   assert.equal(
     paths.macosNotificationBridgeAppPath,
-    '/tmp/home/Applications/Code Agent Notifications.app',
-  );
-  assert.deepEqual(paths.macosNotificationBridgeLegacyAppPaths, [
     '/tmp/home/Library/Application Support/codex-vscode-terminal-tools/CodeAgentNotificationBridge.app',
-  ]);
+  );
   assert.equal(
     paths.sourceWorkbenchPath,
     '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
@@ -88,18 +85,7 @@ test('applyHostConfig ensures the managed Code app before shared host config', (
       applicationsDir: tmpDir,
     }),
     ensureManagedCodeApp: () => ({ changed: true, reason: 'managed app missing' }),
-    ensureMacosNotificationBridge: (options) => {
-      assert.deepEqual(options.staleAppPaths, [
-        path.join(
-          home,
-          'Library',
-          'Application Support',
-          'codex-vscode-terminal-tools',
-          'CodeAgentNotificationBridge.app',
-        ),
-      ]);
-      return { changed: true, detail: 'bridge rebuilt' };
-    },
+    ensureMacosNotificationBridge: () => ({ changed: true, detail: 'bridge rebuilt' }),
   });
 
   assert.deepEqual(results[0], {
@@ -645,16 +631,15 @@ test('checkHostConfig reports the managed macOS notification bridge app', () => 
   fs.mkdirSync(sourceDir, { recursive: true });
   fs.mkdirSync(assetsDir, { recursive: true });
   fs.writeFileSync(path.join(sourceDir, 'main.swift'), 'print("bridge")\n');
-  fs.writeFileSync(path.join(assetsDir, 'warp-glass-sky.png'), 'icon-bytes');
+  fs.writeFileSync(path.join(assetsDir, 'warp-glass-sky.icns'), 'icon-bytes');
   fs.writeFileSync(
     path.join(sourceDir, 'Info.plist'),
     [
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<plist version="1.0"><dict>',
       '<key>CFBundleExecutable</key><string>CodeAgentNotificationBridge</string>',
-      '<key>CFBundleIdentifier</key><string>com.seongho.CodeAgentNotifications</string>',
-      '<key>CFBundleIconFile</key><string>AppIcon</string>',
-      '<key>CFBundleIconName</key><string>AppIcon</string>',
+      '<key>CFBundleIdentifier</key><string>com.seongho.CodeAgentNotificationBridge</string>',
+      '<key>CFBundleIconFile</key><string>CodeAgentNotificationBridge</string>',
       '</dict></plist>',
       '',
     ].join('\n'),
@@ -666,11 +651,6 @@ test('checkHostConfig reports the managed macOS notification bridge app', () => 
     execFileSync(command, args) {
       if (command === 'swiftc') {
         fs.writeFileSync(args.at(-1), '#!/bin/sh\n');
-      }
-      if (command === 'xcrun' && args[0] === 'actool') {
-        const outputDir = args[args.indexOf('--compile') + 1];
-        fs.writeFileSync(path.join(outputDir, 'AppIcon.icns'), 'compiled-icon-bytes');
-        fs.writeFileSync(path.join(outputDir, 'Assets.car'), 'asset-catalog-bytes');
       }
       return '';
     },
@@ -689,7 +669,6 @@ test('checkHostConfig reports the managed macOS notification bridge app', () => 
       wrapperPath: path.join(tmpDir, 'patch-vscode-terminal-order'),
       imeWrapperPath: path.join(tmpDir, 'patch-vscode-ime-guard'),
       macosNotificationBridgeAppPath: appPath,
-      macosNotificationBridgeLegacyAppPaths: [],
     },
     checkManagedCodeApp: false,
     checkWorkbench: false,
@@ -708,56 +687,6 @@ test('checkHostConfig reports the managed macOS notification bridge app', () => 
     id: 'macosNotificationBridge',
     ok: true,
     detail: 'macOS notification bridge app is installed',
-  });
-});
-
-test('checkHostConfig reports stale legacy macOS notification bridge apps', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
-  const currentAppPath = path.join(tmpDir, 'Applications', 'Code Agent Notifications.app');
-  const staleAppPath = path.join(
-    tmpDir,
-    'home',
-    'Library',
-    'Application Support',
-    'codex-vscode-terminal-tools',
-    'CodeAgentNotificationBridge.app',
-  );
-  fs.mkdirSync(currentAppPath, { recursive: true });
-  fs.mkdirSync(staleAppPath, { recursive: true });
-
-  const statuses = checkHostConfig({
-    paths: {
-      home: path.join(tmpDir, 'home'),
-      projectRoot: path.join(tmpDir, 'project'),
-      userSettingsPath: path.join(tmpDir, 'settings.json'),
-      userKeybindingsPath: path.join(tmpDir, 'keybindings.json'),
-      zshrcPath: path.join(tmpDir, '.zshrc'),
-      codexConfigPath: path.join(tmpDir, 'config.toml'),
-      codexHooksPath: path.join(tmpDir, 'hooks.json'),
-      extensionPath: path.join(tmpDir, 'extension'),
-      wrapperPath: path.join(tmpDir, 'patch-vscode-terminal-order'),
-      imeWrapperPath: path.join(tmpDir, 'patch-vscode-ime-guard'),
-      macosNotificationBridgeAppPath: currentAppPath,
-      macosNotificationBridgeLegacyAppPaths: [staleAppPath],
-    },
-    checkManagedCodeApp: false,
-    checkWorkbench: false,
-    checkClaude: false,
-    checkVscodeIcon: false,
-    checkDockIcon: false,
-    checkWatermark: false,
-    checkOpaqueOverlays: false,
-    checkTitlebarCenter: false,
-    checkTerminalTabsLayout: false,
-    checkMacosNotificationBridge: true,
-    checkSmartPaste: false,
-  });
-  const byId = Object.fromEntries(statuses.map((status) => [status.id, status]));
-
-  assert.deepEqual(byId.macosNotificationBridgeLegacyApps, {
-    id: 'macosNotificationBridgeLegacyApps',
-    ok: false,
-    detail: `stale macOS notification bridge app still exists: ${staleAppPath}`,
   });
 });
 
