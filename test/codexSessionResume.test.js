@@ -809,6 +809,63 @@ test('manager restores a stored custom title when reload exposes the same sessio
   assert.equal(globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].title, restoredTitle);
 });
 
+test('manager retries a restored custom title when live Codex rewrites the tab title after reload', async () => {
+  const restoredTitle = 'codex-vscode-terminal... | 경로 축약';
+  const codexTitle = `codex-vscode-terminal... | ${SESSION_ID_A}`;
+  const terminal = createTerminal({
+    name: codexTitle,
+    cwd: '/Users/seongho/projects/seongho/projects/codex-vscode-terminal-tools',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/seongho/projects/codex-vscode-terminal-tools',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 101,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: restoredTitle,
+    },
+  ]);
+  const timers = [];
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: `/opt/homebrew/bin/codex resume ${SESSION_ID_A}` },
+    ],
+    now: () => 1000,
+    setTimeout(callback, delayMs) {
+      const handle = { callback, delayMs };
+      timers.push(handle);
+      return handle;
+    },
+    startTimers: false,
+    titleRestoreRetryDelayMs: 25,
+  });
+
+  await manager.restoreCodexSessions();
+  assert.deepEqual(fake.executedCommands, [
+    ['workbench.action.terminal.renameWithArg', { name: restoredTitle }],
+  ]);
+
+  terminal.name = codexTitle;
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].delayMs, 25);
+  timers[0].callback();
+  await manager.flush();
+
+  assert.deepEqual(fake.executedCommands, [
+    ['workbench.action.terminal.renameWithArg', { name: restoredTitle }],
+    ['workbench.action.terminal.renameWithArg', { name: restoredTitle }],
+  ]);
+  assert.equal(terminal.name, restoredTitle);
+  assert.equal(globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].title, restoredTitle);
+});
+
 test('manager auto-resumes the latest same-tab same-cwd Codex record when restored title is only cwd', async () => {
   const terminal = createTerminal({
     name: '~/projects/seongho/projects/codex-vscode-terminal-tools',

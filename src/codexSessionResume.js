@@ -8,6 +8,7 @@ const DEFAULT_STARTUP_DELAY_MS = 1000;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 3000;
 const DEFAULT_RESUME_CONFIRMATION_GRACE_MS = 5000;
 const DEFAULT_STARTUP_RESTORE_WINDOW_MS = 60_000;
+const DEFAULT_TITLE_RESTORE_RETRY_DELAY_MS = 1000;
 const DEFAULT_SESSION_REGISTRY_PATH = path.join(
   os.homedir(),
   '.codex',
@@ -659,11 +660,14 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     options.resumeConfirmationGraceMs ?? DEFAULT_RESUME_CONFIRMATION_GRACE_MS;
   const startupRestoreWindowMs =
     options.startupRestoreWindowMs ?? DEFAULT_STARTUP_RESTORE_WINDOW_MS;
+  const titleRestoreRetryDelayMs =
+    options.titleRestoreRetryDelayMs ?? DEFAULT_TITLE_RESTORE_RETRY_DELAY_MS;
   const log = options.log ?? console;
 
   const disposables = [];
   const pendingTasks = new Set();
   const resumedThisActivation = new Set();
+  const titleRestoreRetryHandles = new Map();
   let interval;
   let startupTimeout;
   let started = false;
@@ -744,6 +748,29 @@ function createCodexSessionResumeManager(vscode, options = {}) {
         log.warn?.(`Failed to ${label}`, error);
       }),
     );
+  }
+
+  function scheduleTerminalTitleRestoreRetry(record, terminal) {
+    const delayMs = Number(titleRestoreRetryDelayMs);
+    if (!terminal || !Number.isFinite(delayMs) || delayMs < 0) {
+      return;
+    }
+
+    const existingHandle = titleRestoreRetryHandles.get(terminal);
+    if (existingHandle) {
+      clearTimeoutFn(existingHandle);
+    }
+
+    const handle = setTimeoutFn(() => {
+      if (titleRestoreRetryHandles.get(terminal) === handle) {
+        titleRestoreRetryHandles.delete(terminal);
+      }
+      runTracked('retry Codex terminal title restore', () =>
+        restoreTerminalTitleIfNeeded(record, terminal, { scheduleRetry: false }),
+      );
+    }, delayMs);
+    handle?.unref?.();
+    titleRestoreRetryHandles.set(terminal, handle);
   }
 
   async function inspectTerminalCodexProcess(terminal) {
@@ -995,7 +1022,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     return Boolean(record?.sessionId && record.codexProcessActive);
   }
 
-  async function restoreTerminalTitleIfNeeded(record, terminal) {
+  async function restoreTerminalTitleIfNeeded(record, terminal, options = {}) {
     const currentTitle = getTerminalTitle(terminal);
     if (
       !shouldRestoreTerminalTitle(record, currentTitle) ||
@@ -1006,6 +1033,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
 
     const previousActiveTerminal = vscode.window.activeTerminal;
     const needsActivation = previousActiveTerminal !== terminal;
+    let restored = false;
     if (needsActivation) {
       if (typeof terminal?.show !== 'function') {
         return;
@@ -1017,6 +1045,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
       await vscode.commands.executeCommand(RENAME_TERMINAL_COMMAND, {
         name: normalizeTitle(record.title),
       });
+      restored = true;
     } catch (error) {
       log.warn?.('Failed to restore Codex terminal title', error);
     } finally {
@@ -1031,6 +1060,10 @@ function createCodexSessionResumeManager(vscode, options = {}) {
           log.warn?.('Failed to restore previously active terminal after title restore', error);
         }
       }
+    }
+
+    if (restored && options.scheduleRetry !== false) {
+      scheduleTerminalTitleRestoreRetry(record, terminal);
     }
   }
 
@@ -1367,6 +1400,11 @@ function createCodexSessionResumeManager(vscode, options = {}) {
       clearTimeoutFn(startupTimeout);
       startupTimeout = undefined;
     }
+
+    for (const handle of titleRestoreRetryHandles.values()) {
+      clearTimeoutFn(handle);
+    }
+    titleRestoreRetryHandles.clear();
 
     if (interval) {
       clearIntervalFn(interval);

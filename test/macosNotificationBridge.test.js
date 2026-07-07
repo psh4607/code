@@ -15,6 +15,7 @@ const {
   encodeBridgePayloadArgument,
   ensureMacosNotificationBridge,
   checkMacosNotificationBridge,
+  macosNotificationBridgeAssetsCarPath,
   macosNotificationBridgeIconPath,
   macosNotificationBridgeExecutablePath,
   sendMacosAgentNotificationPayload,
@@ -35,10 +36,10 @@ function event(overrides = {}) {
   };
 }
 
-test('defaultMacosNotificationBridgeAppPath lives under managed Application Support', () => {
+test('defaultMacosNotificationBridgeAppPath lives under user Applications', () => {
   assert.equal(
     defaultMacosNotificationBridgeAppPath({ home: '/tmp/home' }),
-    '/tmp/home/Library/Application Support/codex-vscode-terminal-tools/CodeAgentNotificationBridge.app',
+    '/tmp/home/Applications/Code Agent Notifications.app',
   );
 });
 
@@ -98,7 +99,7 @@ test('sendMacosAgentNotificationPayload skips when the helper app is missing', a
   });
 });
 
-test('sendMacosAgentNotificationPayload invokes the managed helper executable on macOS', async () => {
+test('sendMacosAgentNotificationPayload launches the managed app bundle through LaunchServices on macOS', async () => {
   const calls = [];
   const appPath = '/tmp/CodeAgentNotificationBridge.app';
   const result = await sendMacosAgentNotificationPayload(
@@ -116,10 +117,10 @@ test('sendMacosAgentNotificationPayload invokes the managed helper executable on
 
   assert.deepEqual(result, { ok: true });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].file, macosNotificationBridgeExecutablePath(appPath));
-  assert.deepEqual(calls[0].args.slice(0, 1), ['--notify']);
+  assert.equal(calls[0].file, '/usr/bin/open');
+  assert.deepEqual(calls[0].args.slice(0, 5), ['-W', '-n', appPath, '--args', '--notify']);
   assert.equal(calls[0].options.timeout, 10000);
-  assert.deepEqual(JSON.parse(Buffer.from(calls[0].args[1], 'base64').toString('utf8')), {
+  assert.deepEqual(JSON.parse(Buffer.from(calls[0].args[5], 'base64').toString('utf8')), {
     title: 'Codex finished',
   });
 });
@@ -148,8 +149,25 @@ test('native bridge Info.plist declares a bundle icon for Notification Center', 
     'utf8',
   );
 
+  assert.equal(BRIDGE_BUNDLE_IDENTIFIER, 'com.seongho.CodeAgentNotifications');
+  assert.match(source, /<key>CFBundleIdentifier<\/key>\s*<string>com\.seongho\.CodeAgentNotifications<\/string>/);
+  assert.doesNotMatch(source, /com\.seongho\.CodeAgentNotificationBridge/);
   assert.match(source, /<key>CFBundleIconFile<\/key>/);
+  assert.match(source, /<key>CFBundleIconName<\/key>/);
   assert.match(source, new RegExp(`<string>${BRIDGE_ICON_NAME}</string>`));
+  assert.match(source, /<key>CFBundleVersion<\/key>\s*<string>4<\/string>/);
+  assert.doesNotMatch(source, /<key>LSUIElement<\/key>/);
+});
+
+test('native bridge sets the AppKit application icon from the bundled icns resource', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'native', 'CodeAgentNotificationBridge', 'main.swift'),
+    'utf8',
+  );
+
+  assert.match(source, /Bundle\.main\.url\(forResource: "AppIcon", withExtension: "icns"\)/);
+  assert.match(source, /NSApp\.applicationIconImage = icon/);
+  assert.doesNotMatch(source, /setActivationPolicy\(\.accessory\)/);
 });
 
 test('ensureMacosNotificationBridge builds a signed app bundle with a deterministic marker', () => {
@@ -162,7 +180,7 @@ test('ensureMacosNotificationBridge builds a signed app bundle with a determinis
   fs.mkdirSync(sourceDir, { recursive: true });
   fs.mkdirSync(assetsDir, { recursive: true });
   fs.writeFileSync(path.join(sourceDir, 'main.swift'), 'print("bridge")\n');
-  fs.writeFileSync(path.join(assetsDir, 'warp-glass-sky.icns'), 'icon-bytes');
+  fs.writeFileSync(path.join(assetsDir, 'warp-glass-sky.png'), 'icon-png-bytes');
   fs.writeFileSync(
     path.join(sourceDir, 'Info.plist'),
     `<?xml version="1.0" encoding="UTF-8"?>
@@ -170,6 +188,8 @@ test('ensureMacosNotificationBridge builds a signed app bundle with a determinis
 <key>CFBundleExecutable</key><string>${BRIDGE_EXECUTABLE_NAME}</string>
 <key>CFBundleIdentifier</key><string>${BRIDGE_BUNDLE_IDENTIFIER}</string>
 <key>CFBundleIconFile</key><string>${BRIDGE_ICON_NAME}</string>
+<key>CFBundleIconName</key><string>${BRIDGE_ICON_NAME}</string>
+<key>CFBundleVersion</key><string>4</string>
 </dict></plist>
 `,
   );
@@ -183,6 +203,11 @@ test('ensureMacosNotificationBridge builds a signed app bundle with a determinis
       if (command === 'swiftc') {
         fs.writeFileSync(args.at(-1), '#!/bin/sh\n');
       }
+      if (command === 'xcrun' && args[0] === 'actool') {
+        const outputDir = args[args.indexOf('--compile') + 1];
+        fs.writeFileSync(path.join(outputDir, BRIDGE_ICON_FILE), 'compiled-icon-bytes');
+        fs.writeFileSync(path.join(outputDir, 'Assets.car'), 'asset-catalog-bytes');
+      }
       return '';
     },
   });
@@ -191,12 +216,23 @@ test('ensureMacosNotificationBridge builds a signed app bundle with a determinis
   assert.equal(fs.existsSync(path.join(appPath, 'Contents', 'Info.plist')), true);
   assert.equal(fs.existsSync(macosNotificationBridgeExecutablePath(appPath)), true);
   assert.equal(fs.existsSync(macosNotificationBridgeIconPath(appPath)), true);
+  assert.equal(fs.existsSync(macosNotificationBridgeAssetsCarPath(appPath)), true);
   assert.equal(
     fs.readFileSync(macosNotificationBridgeIconPath(appPath), 'utf8'),
-    'icon-bytes',
+    'compiled-icon-bytes',
+  );
+  assert.equal(
+    fs.readFileSync(macosNotificationBridgeAssetsCarPath(appPath), 'utf8'),
+    'asset-catalog-bytes',
   );
   assert.equal(path.basename(macosNotificationBridgeIconPath(appPath)), BRIDGE_ICON_FILE);
-  assert.deepEqual(calls.map((call) => call.command), ['swiftc', 'codesign']);
+  assert.equal(calls.some((call) => call.command === 'xcrun' && call.args[0] === 'actool'), true);
+  assert.equal(calls.some((call) => call.command === 'sips'), true);
+  assert.deepEqual(calls.slice(-3).map((call) => call.command), [
+    'codesign',
+    '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+    '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+  ]);
   assert.deepEqual(checkMacosNotificationBridge({ appPath, projectRoot, platform: 'darwin' }), {
     ok: true,
     detail: 'macOS notification bridge app is installed',
@@ -211,4 +247,137 @@ test('ensureMacosNotificationBridge builds a signed app bundle with a determinis
     },
   });
   assert.equal(second.changed, false);
+});
+
+test('ensureMacosNotificationBridge removes stale legacy bridge app paths even when the current app is installed', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-notification-bridge-test-'));
+  const projectRoot = path.join(tmpDir, 'project');
+  const sourceDir = path.join(projectRoot, 'native', 'CodeAgentNotificationBridge');
+  const assetsDir = path.join(projectRoot, 'assets');
+  const appPath = path.join(tmpDir, 'Applications', 'Code Agent Notifications.app');
+  const staleAppPath = path.join(
+    tmpDir,
+    'home',
+    'Library',
+    'Application Support',
+    'codex-vscode-terminal-tools',
+    'CodeAgentNotificationBridge.app',
+  );
+  const calls = [];
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.mkdirSync(assetsDir, { recursive: true });
+  fs.mkdirSync(staleAppPath, { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'main.swift'), 'print("bridge")\n');
+  fs.writeFileSync(path.join(assetsDir, 'warp-glass-sky.png'), 'icon-png-bytes');
+  fs.writeFileSync(
+    path.join(sourceDir, 'Info.plist'),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>${BRIDGE_EXECUTABLE_NAME}</string>
+<key>CFBundleIdentifier</key><string>${BRIDGE_BUNDLE_IDENTIFIER}</string>
+<key>CFBundleIconFile</key><string>${BRIDGE_ICON_NAME}</string>
+<key>CFBundleIconName</key><string>${BRIDGE_ICON_NAME}</string>
+<key>CFBundleVersion</key><string>4</string>
+</dict></plist>
+`,
+  );
+
+  ensureMacosNotificationBridge({
+    appPath,
+    projectRoot,
+    platform: 'darwin',
+    execFileSync(command, args) {
+      if (command === 'swiftc') {
+        fs.writeFileSync(args.at(-1), '#!/bin/sh\n');
+      }
+      if (command === 'xcrun' && args[0] === 'actool') {
+        const outputDir = args[args.indexOf('--compile') + 1];
+        fs.writeFileSync(path.join(outputDir, BRIDGE_ICON_FILE), 'compiled-icon-bytes');
+        fs.writeFileSync(path.join(outputDir, 'Assets.car'), 'asset-catalog-bytes');
+      }
+      return '';
+    },
+  });
+
+  const second = ensureMacosNotificationBridge({
+    appPath,
+    projectRoot,
+    platform: 'darwin',
+    staleAppPaths: [staleAppPath],
+    execFileSync(command, args) {
+      calls.push({ command, args });
+      return '';
+    },
+  });
+
+  assert.equal(second.changed, true);
+  assert.match(second.detail, /removed stale/);
+  assert.equal(fs.existsSync(staleAppPath), false);
+  assert.deepEqual(calls, [
+    {
+      command: '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+      args: ['-u', staleAppPath],
+    },
+  ]);
+});
+
+test('ensureMacosNotificationBridge unregisters a stale current app before replacing it', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-notification-bridge-test-'));
+  const projectRoot = path.join(tmpDir, 'project');
+  const sourceDir = path.join(projectRoot, 'native', 'CodeAgentNotificationBridge');
+  const assetsDir = path.join(projectRoot, 'assets');
+  const appPath = path.join(tmpDir, 'Applications', 'Code Agent Notifications.app');
+  const calls = [];
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.mkdirSync(assetsDir, { recursive: true });
+  fs.mkdirSync(path.join(appPath, 'Contents', 'MacOS'), { recursive: true });
+  fs.mkdirSync(path.join(appPath, 'Contents', 'Resources'), { recursive: true });
+  fs.writeFileSync(path.join(appPath, 'Contents', 'MacOS', BRIDGE_EXECUTABLE_NAME), '#!/bin/sh\n');
+  fs.writeFileSync(
+    path.join(appPath, 'Contents', 'Info.plist'),
+    '<plist><dict><key>CFBundleIdentifier</key><string>com.seongho.CodeAgentNotificationBridge</string></dict></plist>',
+  );
+  fs.writeFileSync(path.join(sourceDir, 'main.swift'), 'print("bridge")\n');
+  fs.writeFileSync(path.join(assetsDir, 'warp-glass-sky.png'), 'icon-png-bytes');
+  fs.writeFileSync(
+    path.join(sourceDir, 'Info.plist'),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>${BRIDGE_EXECUTABLE_NAME}</string>
+<key>CFBundleIdentifier</key><string>${BRIDGE_BUNDLE_IDENTIFIER}</string>
+<key>CFBundleIconFile</key><string>${BRIDGE_ICON_NAME}</string>
+<key>CFBundleIconName</key><string>${BRIDGE_ICON_NAME}</string>
+<key>CFBundleVersion</key><string>4</string>
+</dict></plist>
+`,
+  );
+
+  ensureMacosNotificationBridge({
+    appPath,
+    projectRoot,
+    platform: 'darwin',
+    execFileSync(command, args) {
+      calls.push({ command, args });
+      if (command === 'swiftc') {
+        fs.writeFileSync(args.at(-1), '#!/bin/sh\n');
+      }
+      if (command === 'xcrun' && args[0] === 'actool') {
+        const outputDir = args[args.indexOf('--compile') + 1];
+        fs.writeFileSync(path.join(outputDir, BRIDGE_ICON_FILE), 'compiled-icon-bytes');
+        fs.writeFileSync(path.join(outputDir, 'Assets.car'), 'asset-catalog-bytes');
+      }
+      return '';
+    },
+  });
+
+  const unregisterIndex = calls.findIndex((call) => (
+    call.command === '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister' &&
+    call.args[0] === '-u' &&
+    call.args[1] === appPath
+  ));
+  const swiftcIndex = calls.findIndex((call) => call.command === 'swiftc');
+
+  assert.notEqual(unregisterIndex, -1);
+  assert.notEqual(swiftcIndex, -1);
+  assert.equal(unregisterIndex < swiftcIndex, true);
 });
