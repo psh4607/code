@@ -735,6 +735,45 @@ test('manager does not auto-resume when Codex is already alive under the termina
   );
 });
 
+test('manager does not auto-resume when the restored terminal is busy', async () => {
+  const terminal = createTerminal({
+    name: `inf | ${SESSION_ID_A} | Fast off`,
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: 'vim notes.md' },
+    ],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.restoreCodexSessions();
+
+  assert.deepEqual(terminal.sentText, []);
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastRestoreDecision,
+    'skipped:terminal-busy',
+  );
+});
+
 test('manager restores the previous Codex title when reload leaves a live session with only the sequence title', async () => {
   const restoredTitle = `inf | ${SESSION_ID_A} | Fast off`;
   const terminal = createTerminal({
