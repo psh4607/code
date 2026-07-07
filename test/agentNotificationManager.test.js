@@ -3,6 +3,13 @@ const test = require('node:test');
 
 const { createAgentNotificationManager } = require('../src/agentNotificationManager');
 
+function stripNotificationReplacementMarker(message) {
+  return String(message).replace(
+    /^\x1Fcodex-vscode-terminal-tools:replace-notification:[^\x1F]+\x1F/,
+    '',
+  );
+}
+
 function event(overrides = {}) {
   return {
     schemaVersion: 1,
@@ -77,7 +84,11 @@ function createFakeVscode({
           return item;
         },
         async showInformationMessage(message, ...items) {
-          informationMessages.push({ message, items });
+          informationMessages.push({
+            rawMessage: message,
+            message: stripNotificationReplacementMarker(message),
+            items,
+          });
           return informationMessageSelection;
         },
         async showQuickPick(items) {
@@ -197,6 +208,46 @@ test('manager does not present the same event twice across polls', async () => {
   await manager.flush();
 
   assert.equal(fake.informationMessages.length, 1);
+  assert.equal(fake.statusBarItems[0].text, 'Codex: 1');
+});
+
+test('manager tags session notifications for replacement and keeps only latest unread record', async () => {
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
+  const events = [
+    event({
+      id: 'event-1',
+      title: 'First update',
+      createdAt: 1000,
+      dedupeKey: 'codex:session-1:turn_finished:first',
+    }),
+    event({
+      id: 'event-2',
+      title: 'Second update',
+      createdAt: 2000,
+      dedupeKey: 'codex:session-1:turn_finished:second',
+    }),
+  ];
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => events.map((record) => JSON.stringify(record)).join('\n'),
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.deepEqual(
+    fake.informationMessages.map((message) => message.rawMessage.match(
+      /^\x1Fcodex-vscode-terminal-tools:replace-notification:([^\x1F]+)\x1F/,
+    )?.[1]),
+    ['session%3Asession-1', 'session%3Asession-1'],
+  );
+  assert.deepEqual(fake.informationMessages.map((message) => message.message), [
+    'First update\nproject · session session-1 · Complete',
+    'Second update\nproject · session session-1 · Complete',
+  ]);
+  assert.deepEqual(manager._store.records().map((record) => record.id), ['event-2']);
+  assert.equal(manager._store.unreadCount(), 1);
   assert.equal(fake.statusBarItems[0].text, 'Codex: 1');
 });
 

@@ -24,7 +24,12 @@ test('store inserts presentable records newest first and counts unread', () => {
   const store = createAgentNotificationStore();
 
   store.ingestEvent(event({ id: 'old', createdAt: 1000, dedupeKey: 'old' }));
-  store.ingestEvent(event({ id: 'new', createdAt: 2000, dedupeKey: 'new' }));
+  store.ingestEvent(event({
+    id: 'new',
+    sessionId: 'session-2',
+    createdAt: 2000,
+    dedupeKey: 'new',
+  }));
 
   assert.deepEqual(store.records().map((record) => record.id), ['new', 'old']);
   assert.equal(store.unreadCount(), 2);
@@ -39,6 +44,31 @@ test('store dedupes by dedupeKey and keeps the newest record', () => {
 
   assert.deepEqual(store.records().map((record) => record.id), ['second']);
   assert.equal(store.records()[0].body, 'second');
+});
+
+test('store keeps only the latest presentable record for a session', () => {
+  const store = createAgentNotificationStore();
+
+  store.ingestEvent(event({
+    id: 'waiting',
+    event: 'permission_requested',
+    severity: 'waiting',
+    title: 'Codex needs permission',
+    createdAt: 1000,
+    dedupeKey: 'codex:session-1:permission_requested:first',
+  }));
+  store.ingestEvent(event({
+    id: 'finished',
+    event: 'turn_finished',
+    severity: 'success',
+    title: 'Codex finished',
+    createdAt: 2000,
+    dedupeKey: 'codex:session-1:turn_finished:second',
+  }));
+
+  assert.deepEqual(store.records().map((record) => record.id), ['finished']);
+  assert.equal(store.unreadCount(), 1);
+  assert.equal(store.latestUnread().id, 'finished');
 });
 
 test('store preserves read state when a dedupeKey is replayed', () => {
@@ -115,7 +145,7 @@ test('focused terminal suppression records the event as read and skips presentat
 test('store marks all read and clears records', () => {
   const store = createAgentNotificationStore();
   store.ingestEvent(event({ id: 'one', dedupeKey: 'one' }));
-  store.ingestEvent(event({ id: 'two', dedupeKey: 'two' }));
+  store.ingestEvent(event({ id: 'two', sessionId: 'session-2', dedupeKey: 'two' }));
 
   assert.equal(store.markAllRead(), 2);
   assert.equal(store.unreadCount(), 0);

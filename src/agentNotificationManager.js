@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { parseAgentNotificationJsonl } = require('./agentNotificationEvents');
+const { encodeReplaceableNotificationMessage } = require('./agentNotificationReplacement');
 const { createAgentNotificationStore } = require('./agentNotificationStore');
 
 const DEFAULT_EVENTS_PATH = path.join(
@@ -307,8 +308,12 @@ function createAgentNotificationManager(vscode, {
   }
 
   async function presentRecord(record) {
-    const selected = await vscode.window.showInformationMessage(
+    const message = encodeReplaceableNotificationMessage(
       formatNotificationMessage(record),
+      record,
+    );
+    const selected = await vscode.window.showInformationMessage(
+      message,
       'Open Terminal',
       'Mark Read',
     );

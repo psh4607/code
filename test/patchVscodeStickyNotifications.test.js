@@ -36,7 +36,11 @@ test('patch script makes this extension an urgent sticky notification source', (
   assert.match(result.stdout, /Patched VS Code sticky notifications:/);
   const nextSource = fs.readFileSync(workbenchPath, 'utf8');
   assert.match(nextSource, /codex-vscode-terminal-tools: sticky-notifications/);
+  assert.match(nextSource, /codex-vscode-terminal-tools: replace-notification-by-session/);
   assert.match(nextSource, /"seongho\.codex-vscode-terminal-tools"/);
+  assert.match(nextSource, /CODEX_REPLACEABLE_NOTIFICATIONS/);
+  assert.match(nextSource, /replace-notification:\(\[\^\\x1F\]\+\)/);
+  assert.match(nextSource, /\.close\?\.\(\)/);
 
   const backups = fs
     .readdirSync(tmpDir)
@@ -51,13 +55,9 @@ test('patch script makes this extension an urgent sticky notification source', (
 test('patch script is idempotent when sticky notification source is already present', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sticky-notifications-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
-  fs.writeFileSync(
-    workbenchPath,
-    workbenchSource.replace(
-      'xge.URGENT_NOTIFICATION_SOURCES=["vscode.github-authentication","vscode.microsoft-authentication"],',
-      'xge.URGENT_NOTIFICATION_SOURCES=["vscode.github-authentication","vscode.microsoft-authentication","seongho.codex-vscode-terminal-tools"/* codex-vscode-terminal-tools: sticky-notifications. Reapply with patch-vscode-sticky-notifications. */],',
-    ),
-  );
+  fs.writeFileSync(workbenchPath, workbenchSource);
+  const firstResult = runPatchScript({ workbenchPath });
+  assert.equal(firstResult.status, 0, firstResult.stderr);
 
   const result = runPatchScript({ workbenchPath });
 
@@ -69,7 +69,27 @@ test('patch script is idempotent when sticky notification source is already pres
       entry.startsWith('workbench.desktop.main.js.codex-backup-') &&
       entry.endsWith('-sticky-notifications'),
     );
-  assert.equal(backups.length, 0);
+  assert.equal(backups.length, 1);
+});
+
+test('patch script upgrades an existing sticky-only patch with replaceable notifications', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sticky-notifications-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  fs.writeFileSync(
+    workbenchPath,
+    workbenchSource.replace(
+      'xge.URGENT_NOTIFICATION_SOURCES=["vscode.github-authentication","vscode.microsoft-authentication"],',
+      'xge.URGENT_NOTIFICATION_SOURCES=["vscode.github-authentication","vscode.microsoft-authentication","seongho.codex-vscode-terminal-tools"/* codex-vscode-terminal-tools: sticky-notifications. Reapply with patch-vscode-sticky-notifications. */],',
+    ),
+  );
+
+  const result = runPatchScript({ workbenchPath });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Patched VS Code sticky notifications:/);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.match(nextSource, /codex-vscode-terminal-tools: replace-notification-by-session/);
+  assert.equal((nextSource.match(/seongho\.codex-vscode-terminal-tools/g) || []).length, 2);
 });
 
 test('patch script fails closed when urgent notification source marker is missing', () => {

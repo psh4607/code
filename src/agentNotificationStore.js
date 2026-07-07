@@ -2,6 +2,7 @@ const {
   isPresentableAgentNotificationEvent,
   isValidAgentNotificationEvent,
 } = require('./agentNotificationEvents');
+const { agentNotificationReplacementKey } = require('./agentNotificationReplacement');
 
 const DEFAULT_MAX_RECORDS = 200;
 const WAITING_EVENTS = new Set(['permission_requested', 'needs_input']);
@@ -87,6 +88,7 @@ function createAgentNotificationStore({ maxRecords = DEFAULT_MAX_RECORDS, initia
     const wasPresented = presentedDedupeKeys.has(event.dedupeKey) || Boolean(existingRecord?.isPresented);
     const isRead = shouldSuppressPresentation || Boolean(existingRecord?.isRead);
     const shouldPresent = !isRead && !wasPresented;
+    const replacementKey = agentNotificationReplacementKey(event);
     const record = {
       ...cloneRecord(event),
       isRead,
@@ -95,7 +97,10 @@ function createAgentNotificationStore({ maxRecords = DEFAULT_MAX_RECORDS, initia
 
     replaceRecords([
       record,
-      ...records.filter((existing) => existing.dedupeKey !== event.dedupeKey),
+      ...records.filter((existing) => (
+        existing.dedupeKey !== event.dedupeKey &&
+        (!replacementKey || agentNotificationReplacementKey(existing) !== replacementKey)
+      )),
     ]);
 
     if (record.isPresented) {

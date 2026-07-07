@@ -750,6 +750,7 @@ test('checkWorkbenchPatches requires the IME terminal sendSequence hooks', () =>
       '__codexVscodeTerminalTabTitleBreaks',
       'codex-vscode-terminal-tools: terminal-attach-by-pid',
       'codex-vscode-terminal-tools: sticky-notifications',
+      'codex-vscode-terminal-tools: replace-notification-by-session',
       '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */',
       '_dispatch(e,t){let o=this.resolveKeyboardEvent(e),n=globalThis.__codexVscodeImeGuard?.defer?.(e,t,()=>this._doDispatch(o,t,!1));return n!==void 0?n:this._doDispatch(o,t,!1)}',
     ].join('\n'),
@@ -803,7 +804,53 @@ test('checkWorkbenchPatches requires the sticky notifications patch', () => {
 
   assert.deepEqual(checkWorkbenchPatches(workbenchPath), {
     ok: false,
-    detail: 'missing: sticky notifications',
+    detail: 'missing: sticky notifications, replaceable notifications',
+  });
+});
+
+test('checkWorkbenchPatches requires replaceable notification support', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  fs.writeFileSync(
+    workbenchPath,
+    [
+      'this.groups.splice(Math.min(o+1,this.groups.length),0,n)',
+      'codexTerminal.rememberCwdColor',
+      'typeof t=="string"||t===null',
+      'codexTerminal.flashActiveTerminalTab',
+      'this._terminalGroupService.instances.length-1,I=this._terminalGroupService.instances[S]',
+      'this._register($(this._tabListDomElement,"mousedown",async o=>{if(o.button!==0)return',
+      'super("TerminalTabsList",e,{getHeight:()=>68,getTemplateId:()=>"terminal.tabs"}',
+      'paddingBottom:68,dnd:l.createInstance(pft)',
+      '__codexVscodeTerminalTabTitleBreaks',
+      'codex-vscode-terminal-tools: terminal-attach-by-pid',
+      'codex-vscode-terminal-tools: sticky-notifications',
+      '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */',
+      'addEventListener("keydown",p,!0)',
+      'Date.now()-m<180',
+      'xterm-helper-textarea',
+      'insertLineBreak',
+      'insertParagraph',
+      'a?.data==="\\r"',
+      'addEventListener("keypress",I,!0)',
+      'Math.max(120,360-(Date.now()-m))',
+      'function p(a){u(a)&&!a.defaultPrevented&&(h=Date.now()+1400)}',
+      'addEventListener("compositionupdate",y,!0)',
+      'globalThis.__codexVscodeImeGuard?.suppressTerminalKey?.(n,',
+      'this.sendText("\\x1B\\r",!1)',
+      'C==="\\x1B\\r"&&S-P<80',
+      'queueTerminalSequence',
+      'if(a==="\\x1B\\n")return C=a,P=S,h=S+1400,!0',
+      'queued terminal CR sequence failed',
+      'a===C&&S-P<80',
+      'globalThis.__codexVscodeImeGuard?.queueTerminalSequence?.(m,()=>s.sendText(m,!1))??s.sendText(m,!1)',
+      '_dispatch(e,t){let o=this.resolveKeyboardEvent(e),n=globalThis.__codexVscodeImeGuard?.defer?.(e,t,()=>this._doDispatch(o,t,!1));return n!==void 0?n:this._doDispatch(o,t,!1)}',
+    ].join('\n'),
+  );
+
+  assert.deepEqual(checkWorkbenchPatches(workbenchPath), {
+    ok: false,
+    detail: 'missing: replaceable notifications',
   });
 });
 
