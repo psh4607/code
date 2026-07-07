@@ -350,6 +350,93 @@ test('manager snapshots a title-hidden Codex session from the hook registry', as
   ]);
 });
 
+test('manager snapshots the registry session when a visible title id is stale', async () => {
+  const globalState = createGlobalState();
+  const terminal = createTerminal({
+    name: `inf | ${SESSION_ID_A} | Fast off`,
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: '/opt/homebrew/bin/codex' },
+    ],
+    loadSessionRegistryRecords: async () => [
+      {
+        sessionId: SESSION_ID_B,
+        cwd: '/Users/seongho/projects/dalpha/inf',
+        terminalPid: 101,
+        updatedAt: 900,
+      },
+    ],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.snapshotTerminals({ inspectProcesses: true });
+
+  assert.deepEqual(globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY], [
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastCodexProcessCheckAt: 1000,
+      lastObservedCodexProcessAt: 1000,
+      lastSeenAt: 1000,
+      processId: 101,
+      sessionId: SESSION_ID_B,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_B} | Fast off`,
+    },
+  ]);
+});
+
+test('manager snapshots the newest same-pid registry session for a live Codex process', async () => {
+  const globalState = createGlobalState();
+  const terminal = createTerminal({
+    name: `inf | ${SESSION_ID_A} | Fast off`,
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: '/opt/homebrew/bin/codex' },
+    ],
+    loadSessionRegistryRecords: async () => [
+      {
+        sessionId: SESSION_ID_B,
+        cwd: '/tmp/current-codex-cwd',
+        terminalPid: 101,
+        updatedAt: 950,
+      },
+      {
+        sessionId: SESSION_ID_A,
+        cwd: '/Users/seongho/projects/dalpha/inf',
+        terminalPid: 101,
+        updatedAt: 900,
+      },
+    ],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.snapshotTerminals({ inspectProcesses: true });
+
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].sessionId,
+    SESSION_ID_B,
+  );
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].title,
+    `inf | ${SESSION_ID_B} | Fast off`,
+  );
+});
+
 test('manager auto-resumes a restored shell from the matching stored Codex record', async () => {
   const terminal = createTerminal({
     name: `inf | ${SESSION_ID_A} | Fast off`,
@@ -530,6 +617,111 @@ test('manager auto-resumes an idle shell when the restored title directly expose
   await manager.restoreCodexSessions();
 
   assert.deepEqual(terminal.sentText, [[`codex resume ${SESSION_ID_A}`, true]]);
+});
+
+test('manager prefers the registry session over a stale visible title id for live Codex', async () => {
+  const terminal = createTerminal({
+    name: `inf | ${SESSION_ID_A} | Fast off`,
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/dalpha/inf',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 501,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: `inf | ${SESSION_ID_A} | Fast off`,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: '/opt/homebrew/bin/codex' },
+    ],
+    loadSessionRegistryRecords: async () => [
+      {
+        sessionId: SESSION_ID_B,
+        cwd: '/Users/seongho/projects/dalpha/inf',
+        terminalPid: 101,
+        updatedAt: 950,
+      },
+    ],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.restoreCodexSessions();
+
+  assert.deepEqual(terminal.sentText, []);
+  assert.deepEqual(fake.executedCommands, [
+    [
+      'workbench.action.terminal.renameWithArg',
+      { name: `inf | ${SESSION_ID_B} | Fast off` },
+    ],
+  ]);
+  assert.equal(terminal.name, `inf | ${SESSION_ID_B} | Fast off`);
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].lastRestoreDecision,
+    'skipped:codex-process-active',
+  );
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].sessionId,
+    SESSION_ID_B,
+  );
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].title,
+    `inf | ${SESSION_ID_B} | Fast off`,
+  );
+});
+
+test('manager prefers the newest same-pid registry session for a live Codex process', async () => {
+  const terminal = createTerminal({
+    name: `inf | ${SESSION_ID_A} | Fast off`,
+    cwd: '/Users/seongho/projects/dalpha/inf',
+    pid: 101,
+  });
+  const globalState = createGlobalState();
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    hasSavedSession: HAS_SAVED_SESSION,
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: '/opt/homebrew/bin/codex' },
+    ],
+    loadSessionRegistryRecords: async () => [
+      {
+        sessionId: SESSION_ID_B,
+        cwd: '/tmp/current-codex-cwd',
+        terminalPid: 101,
+        updatedAt: 950,
+      },
+      {
+        sessionId: SESSION_ID_A,
+        cwd: '/Users/seongho/projects/dalpha/inf',
+        terminalPid: 101,
+        updatedAt: 900,
+      },
+    ],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.restoreCodexSessions();
+
+  assert.deepEqual(terminal.sentText, []);
+  assert.equal(
+    globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].sessionId,
+    SESSION_ID_B,
+  );
+  assert.equal(terminal.name, `inf | ${SESSION_ID_B} | Fast off`);
 });
 
 test('manager auto-resumes the latest same-tab same-cwd Codex record when restored title is only cwd', async () => {
