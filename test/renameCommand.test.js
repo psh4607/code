@@ -84,6 +84,30 @@ test('rename command also updates the VS Code terminal tab title', async () => {
   assert.equal(fake.vscode.window.activeTerminal.name, 'codex-vscode-terminal... | 경로 축약');
 });
 
+test('rename command persists the renamed terminal tab title for restart restore', async () => {
+  const fake = createFakeVscode({
+    input: '경로 축약',
+    terminal: {
+      name: 'codex-vscode-terminal... | 019f3afc-24d3-7b03-867f-746705cc3415',
+    },
+  });
+  const persisted = [];
+
+  await createRenameThreadCommand(fake.vscode, {
+    async recordTerminalTitleRename(terminal, title, options) {
+      persisted.push({ options, terminal, title });
+    },
+    sleep() {},
+  })();
+
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].terminal, fake.vscode.window.activeTerminal);
+  assert.equal(persisted[0].title, 'codex-vscode-terminal... | 경로 축약');
+  assert.deepEqual(persisted[0].options, {
+    previousTitle: 'codex-vscode-terminal... | 019f3afc-24d3-7b03-867f-746705cc3415',
+  });
+});
+
 test('rename command uses short default delays', async () => {
   const fake = createFakeVscode({ input: 'quick rename' });
   const waits = [];

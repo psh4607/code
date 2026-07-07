@@ -724,6 +724,91 @@ test('manager prefers the newest same-pid registry session for a live Codex proc
   assert.equal(terminal.name, `inf | ${SESSION_ID_B} | Fast off`);
 });
 
+test('manager records an explicit terminal tab rename for restart restore', async () => {
+  const oldTitle = `codex-vscode-terminal... | ${SESSION_ID_A}`;
+  const renamedTitle = 'codex-vscode-terminal... | 경로 축약';
+  const terminal = createTerminal({
+    name: oldTitle,
+    cwd: '/Users/seongho/projects/seongho/projects/codex-vscode-terminal-tools',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/seongho/projects/codex-vscode-terminal-tools',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 101,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: oldTitle,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.recordTerminalTitleRename(terminal, renamedTitle, {
+    previousTitle: oldTitle,
+  });
+
+  assert.deepEqual(globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY], [
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/seongho/projects/codex-vscode-terminal-tools',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 1000,
+      processId: 101,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: renamedTitle,
+    },
+  ]);
+});
+
+test('manager restores a stored custom title when reload exposes the same session id again', async () => {
+  const restoredTitle = 'codex-vscode-terminal... | 경로 축약';
+  const terminal = createTerminal({
+    name: `codex-vscode-terminal... | ${SESSION_ID_A}`,
+    cwd: '/Users/seongho/projects/seongho/projects/codex-vscode-terminal-tools',
+    pid: 101,
+  });
+  const globalState = createGlobalState([
+    {
+      codexProcessActive: true,
+      cwd: '/Users/seongho/projects/seongho/projects/codex-vscode-terminal-tools',
+      lastObservedCodexProcessAt: 900,
+      lastSeenAt: 900,
+      processId: 101,
+      sessionId: SESSION_ID_A,
+      terminalIndex: 0,
+      title: restoredTitle,
+    },
+  ]);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createCodexSessionResumeManager(fake.vscode, {
+    context: { globalState },
+    listProcesses: async () => [
+      { pid: 101, ppid: 1, command: '/bin/zsh -l' },
+      { pid: 102, ppid: 101, command: `/opt/homebrew/bin/codex resume ${SESSION_ID_A}` },
+    ],
+    now: () => 1000,
+    startTimers: false,
+  });
+
+  await manager.restoreCodexSessions();
+
+  assert.deepEqual(fake.executedCommands, [
+    ['workbench.action.terminal.renameWithArg', { name: restoredTitle }],
+  ]);
+  assert.equal(terminal.name, restoredTitle);
+  assert.equal(globalState.values[CODEX_SESSION_RESUME_STORAGE_KEY][0].title, restoredTitle);
+});
+
 test('manager auto-resumes the latest same-tab same-cwd Codex record when restored title is only cwd', async () => {
   const terminal = createTerminal({
     name: '~/projects/seongho/projects/codex-vscode-terminal-tools',

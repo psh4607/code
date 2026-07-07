@@ -35,6 +35,7 @@ function createRenameThreadCommand(vscode, options = {}) {
   const clearDraftDelayMs = options.clearDraftDelayMs ?? 25;
   const delayMs = options.delayMs ?? 100;
   const confirmDelayMs = options.confirmDelayMs ?? 25;
+  const recordTerminalTitleRename = options.recordTerminalTitleRename;
   const sleep = options.sleep ?? defaultSleep;
 
   return async function renameCodexThread() {
@@ -64,10 +65,15 @@ function createRenameThreadCommand(vscode, options = {}) {
     await sleep(confirmDelayMs);
     terminal.sendText('', true);
 
+    const previousTitle = terminal.name;
+    const nextTitle = buildTerminalTabTitle(previousTitle, submission.name);
     if (vscode.commands?.executeCommand) {
       await vscode.commands.executeCommand(RENAME_TERMINAL_COMMAND, {
-        name: buildTerminalTabTitle(terminal.name, submission.name),
+        name: nextTitle,
       });
+    }
+    if (typeof recordTerminalTitleRename === 'function') {
+      await recordTerminalTitleRename(terminal, nextTitle, { previousTitle });
     }
   };
 }

@@ -97,7 +97,10 @@ function activate(context) {
     ),
     vscode.commands.registerCommand(
       'codexTerminal.renameThread',
-      createRenameThreadCommand(vscode),
+      createRenameThreadCommand(vscode, {
+        recordTerminalTitleRename: (...args) =>
+          codexSessionResumeManager?.recordTerminalTitleRename(...args),
+      }),
     ),
     vscode.commands.registerCommand(
       'codexTerminal.smartPaste',

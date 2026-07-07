@@ -163,9 +163,20 @@ function replaceVisibleTitleSessionId(title, sessionId) {
 }
 
 function titleForSession(currentTitle, previousTitle, sessionId) {
+  const normalizedSessionId = extractCodexSessionId(sessionId);
+  const current = replaceVisibleTitleSessionId(currentTitle, normalizedSessionId);
+  const previous = replaceVisibleTitleSessionId(previousTitle, normalizedSessionId);
+  if (
+    extractCodexSessionId(current) === normalizedSessionId &&
+    isRestorableTitle(previous) &&
+    !extractCodexSessionId(previous)
+  ) {
+    return previous;
+  }
+
   return preserveRestorableTitle(
-    replaceVisibleTitleSessionId(currentTitle, sessionId),
-    replaceVisibleTitleSessionId(previousTitle, sessionId),
+    current,
+    previous,
   );
 }
 
@@ -173,11 +184,17 @@ function shouldRestoreTerminalTitle(record, currentTitle) {
   const currentSessionId = extractCodexSessionId(currentTitle);
   const staleVisibleSessionId =
     currentSessionId && record?.sessionId && currentSessionId !== record.sessionId;
+  const sameVisibleSessionId =
+    currentSessionId && record?.sessionId && currentSessionId === record.sessionId;
+  const currentExposesHiddenStoredSession =
+    sameVisibleSessionId && !extractCodexSessionId(record?.title);
 
   return (
     isRestorableTitle(record?.title) &&
     normalizeTitle(record.title) !== normalizeTitle(currentTitle) &&
-    (isLikelyFallbackTitle(currentTitle) || staleVisibleSessionId)
+    (isLikelyFallbackTitle(currentTitle) ||
+      staleVisibleSessionId ||
+      currentExposesHiddenStoredSession)
   );
 }
 
@@ -888,6 +905,68 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     await writeRecords(nextRecords);
   }
 
+  async function recordTerminalTitleRename(terminal, title, options = {}) {
+    const nextTitle = normalizeTitle(title);
+    if (!isRestorableTitle(nextTitle)) {
+      return;
+    }
+
+    const terminalIndex = Math.max(0, (vscode.window.terminals || []).indexOf(terminal));
+    const previousTitle = normalizeTitle(options.previousTitle) || getTerminalTitle(terminal);
+    const currentTime = now();
+    const records = await readRecords();
+    const processId = await getTerminalPid(terminal);
+    const registryRecords = await readSessionRegistryRecords();
+    const registryRecord =
+      findLatestSessionRegistryRecordForProcess(registryRecords, processId) ??
+      findSessionRegistryRecordForTerminal(registryRecords, terminal, processId);
+    const cwd = getTerminalCwd(terminal);
+    const titleSessionId = extractCodexSessionId(previousTitle);
+    const matchedRecord =
+      (titleSessionId
+        ? records.find((record) => record.sessionId === titleSessionId)
+        : undefined) ??
+      records.find(
+        (record) =>
+          record.title &&
+          record.title === previousTitle &&
+          record.cwd &&
+          record.cwd === cwd,
+      ) ??
+      records.find(
+        (record) => record.terminalIndex === terminalIndex && record.title === previousTitle,
+      ) ??
+      findRecordForTerminal(terminal, terminalIndex, records);
+    const sessionId =
+      registryRecord?.sessionId ??
+      matchedRecord?.sessionId ??
+      titleSessionId ??
+      extractCodexSessionId(nextTitle);
+
+    if (!sessionId) {
+      return;
+    }
+
+    const nextRecord = {
+      ...(matchedRecord?.sessionId === sessionId ? matchedRecord : {}),
+      cwd,
+      lastSeenAt: currentTime,
+      processId,
+      sessionId,
+      terminalIndex,
+      title: nextTitle,
+    };
+
+    if (registryRecord?.sessionId === sessionId) {
+      nextRecord.codexProcessActive = true;
+      nextRecord.lastObservedCodexProcessAt = currentTime;
+    }
+
+    const nextRecords = records.filter((record) => record.sessionId !== sessionId);
+    nextRecords.push(nextRecord);
+    await writeRecords(nextRecords);
+  }
+
   async function getResumeSafety(terminal) {
     const inspection = await inspectTerminalCodexProcess(terminal);
     if (inspection.hasCodexProcess) {
@@ -1303,6 +1382,7 @@ function createCodexSessionResumeManager(vscode, options = {}) {
     dispose,
     flush,
     recordShellExecution,
+    recordTerminalTitleRename,
     restoreCodexSessions,
     snapshotTerminals,
     start,
