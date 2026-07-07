@@ -1,5 +1,7 @@
 const NOTIFICATION_REPLACEMENT_MARKER_PREFIX =
   '\x1Fcodex-vscode-terminal-tools:replace-notification:';
+const NOTIFICATION_CLOSE_MARKER_PREFIX =
+  '\x1Fcodex-vscode-terminal-tools:close-notification:';
 const NOTIFICATION_REPLACEMENT_MARKER_SUFFIX = '\x1F';
 
 function normalizeString(value) {
@@ -39,9 +41,24 @@ function encodeReplaceableNotificationMessage(message, record) {
   ].join('');
 }
 
+function encodeCloseNotificationMessage(record) {
+  const replacementKey = agentNotificationReplacementKey(record);
+  if (!replacementKey) {
+    return undefined;
+  }
+
+  return [
+    NOTIFICATION_CLOSE_MARKER_PREFIX,
+    encodeURIComponent(replacementKey),
+    NOTIFICATION_REPLACEMENT_MARKER_SUFFIX,
+  ].join('');
+}
+
 module.exports = {
+  NOTIFICATION_CLOSE_MARKER_PREFIX,
   NOTIFICATION_REPLACEMENT_MARKER_PREFIX,
   NOTIFICATION_REPLACEMENT_MARKER_SUFFIX,
   agentNotificationReplacementKey,
+  encodeCloseNotificationMessage,
   encodeReplaceableNotificationMessage,
 };

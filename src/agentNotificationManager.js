@@ -7,6 +7,7 @@ const {
 } = require('./agentNotificationEvents');
 const {
   agentNotificationReplacementKey,
+  encodeCloseNotificationMessage,
   encodeReplaceableNotificationMessage,
 } = require('./agentNotificationReplacement');
 const { createAgentNotificationStore } = require('./agentNotificationStore');
@@ -332,7 +333,20 @@ function createAgentNotificationManager(vscode, {
     }
   }
 
-  async function openRecord(record) {
+  async function dismissVsCodeNotification(record) {
+    const closeMessage = encodeCloseNotificationMessage(record);
+    if (!closeMessage || !vscode.window?.showInformationMessage) {
+      return false;
+    }
+    try {
+      await vscode.window.showInformationMessage(closeMessage);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function openRecord(record, { dismissNotificationToast = false } = {}) {
     const terminalMatch = await findTerminalForRecord(record);
     if (!terminalMatch) {
       return false;
@@ -344,6 +358,9 @@ function createAgentNotificationManager(vscode, {
       persistState();
     }
     updateStatusBar();
+    if (dismissNotificationToast) {
+      await dismissVsCodeNotification(record);
+    }
     return true;
   }
 
@@ -511,7 +528,7 @@ function createAgentNotificationManager(vscode, {
     if (!record) {
       return false;
     }
-    return openRecord(record);
+    return openRecord(record, { dismissNotificationToast: true });
   }
 
   function markAgentNotificationsRead() {

@@ -7,6 +7,9 @@ function stripNotificationReplacementMarker(message) {
   return String(message).replace(
     /^\x1Fcodex-vscode-terminal-tools:replace-notification:[^\x1F]+\x1F/,
     '',
+  ).replace(
+    /^\x1Fcodex-vscode-terminal-tools:close-notification:[^\x1F]+\x1F/,
+    '',
   );
 }
 
@@ -399,6 +402,10 @@ test('manager opens a native notification click URI by event id', async () => {
     true,
   );
   assert.deepEqual(terminal.showCalls, [false]);
+  assert.deepEqual(fake.informationMessages.map((message) => message.rawMessage), [
+    '\x1Fcodex-vscode-terminal-tools:replace-notification:session%3Asession-1\x1FCodex finished\nproject · session session-1 · Complete',
+    '\x1Fcodex-vscode-terminal-tools:close-notification:session%3Asession-1\x1F',
+  ]);
   assert.equal(fake.statusBarItems[0].visible, false);
 });
 

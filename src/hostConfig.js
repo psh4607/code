@@ -238,6 +238,8 @@ const TERMINAL_ATTACH_BY_PID_MARKER = 'codex-vscode-terminal-tools: terminal-att
 const STICKY_NOTIFICATIONS_MARKER = 'codex-vscode-terminal-tools: sticky-notifications';
 const REPLACEABLE_NOTIFICATIONS_MARKER =
   'codex-vscode-terminal-tools: replace-notification-by-session';
+const CLOSE_NOTIFICATIONS_MARKER =
+  'codex-vscode-terminal-tools: close-notification-by-session';
 const IME_GUARD_MARKER =
   '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */';
 const IME_EARLY_CAPTURE_MARKER = 'addEventListener("keydown",p,!0)';
@@ -987,6 +989,7 @@ function checkWorkbenchPatches(workbenchPath) {
     ['terminal attach by pid', TERMINAL_ATTACH_BY_PID_MARKER],
     ['sticky notifications', STICKY_NOTIFICATIONS_MARKER],
     ['replaceable notifications', REPLACEABLE_NOTIFICATIONS_MARKER],
+    ['closeable notifications', CLOSE_NOTIFICATIONS_MARKER],
     ['IME guard helper', IME_GUARD_MARKER],
     ['IME early-capture hook', IME_EARLY_CAPTURE_MARKER],
     ['IME recent-composition defer', IME_RECENT_COMPOSITION_MARKER],

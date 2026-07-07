@@ -40,7 +40,9 @@ test('patch script makes this extension an urgent sticky notification source', (
   assert.match(nextSource, /"seongho\.codex-vscode-terminal-tools"/);
   assert.match(nextSource, /CODEX_REPLACEABLE_NOTIFICATIONS/);
   assert.match(nextSource, /replace-notification:\(\[\^\\x1F\]\+\)/);
+  assert.match(nextSource, /close-notification:\(\[\^\\x1F\]\+\)/);
   assert.match(nextSource, /\.close\?\.\(\)/);
+  assert.match(nextSource, /Promise\.resolve\(\)/);
 
   const backups = fs
     .readdirSync(tmpDir)
@@ -89,7 +91,35 @@ test('patch script upgrades an existing sticky-only patch with replaceable notif
   assert.match(result.stdout, /Patched VS Code sticky notifications:/);
   const nextSource = fs.readFileSync(workbenchPath, 'utf8');
   assert.match(nextSource, /codex-vscode-terminal-tools: replace-notification-by-session/);
-  assert.equal((nextSource.match(/seongho\.codex-vscode-terminal-tools/g) || []).length, 2);
+  assert.match(nextSource, /codex-vscode-terminal-tools: close-notification-by-session/);
+  assert.equal((nextSource.match(/seongho\.codex-vscode-terminal-tools/g) || []).length, 3);
+});
+
+test('patch script upgrades an existing replaceable patch with closeable notifications', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sticky-notifications-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  fs.writeFileSync(workbenchPath, workbenchSource);
+  const firstResult = runPatchScript({ workbenchPath });
+  assert.equal(firstResult.status, 0, firstResult.stderr);
+  let legacyPatchedSource = fs.readFileSync(workbenchPath, 'utf8');
+  legacyPatchedSource = legacyPatchedSource
+    .replace(
+      'let a=s&&s.id==="seongho.codex-vscode-terminal-tools"?/^\\x1Fcodex-vscode-terminal-tools:close-notification:([^\\x1F]+)\\x1F/.exec(e):void 0;if(a)return xge.CODEX_REPLACEABLE_NOTIFICATIONS?.get(a[1])?.close?.(),xge.CODEX_REPLACEABLE_NOTIFICATIONS?.delete?.(a[1]),n(void 0),Promise.resolve();',
+      '',
+    )
+    .replace(
+      '; codex-vscode-terminal-tools: close-notification-by-session',
+      '',
+    );
+  fs.writeFileSync(workbenchPath, legacyPatchedSource);
+
+  const result = runPatchScript({ workbenchPath });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Patched VS Code sticky notifications:/);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.match(nextSource, /close-notification:\(\[\^\\x1F\]\+\)/);
+  assert.match(nextSource, /codex-vscode-terminal-tools: close-notification-by-session/);
 });
 
 test('patch script fails closed when urgent notification source marker is missing', () => {

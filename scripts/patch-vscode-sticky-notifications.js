@@ -11,6 +11,8 @@ const patchMarker =
   'codex-vscode-terminal-tools: sticky-notifications';
 const replacementPatchMarker =
   'codex-vscode-terminal-tools: replace-notification-by-session';
+const closePatchMarker =
+  'codex-vscode-terminal-tools: close-notification-by-session';
 const managedStickySourceSnippet =
   `"${extensionIdentifier}"/* ${patchMarker}. Reapply with patch-vscode-sticky-notifications. */`;
 const urgentSourcesPattern =
@@ -26,6 +28,20 @@ function buildReplacementSnippet(serviceClassName) {
   return [
     `let m=s&&s.id==="${extensionIdentifier}"?`,
     '/^\\x1Fcodex-vscode-terminal-tools:replace-notification:([^\\x1F]+)\\x1F/.exec(e):void 0;',
+    `let a=s&&s.id==="${extensionIdentifier}"?`,
+    '/^\\x1Fcodex-vscode-terminal-tools:close-notification:([^\\x1F]+)\\x1F/.exec(e):void 0;',
+    `if(a)return ${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS?.get(a[1])?.close?.(),`,
+    `${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS?.delete?.(a[1]),n(void 0),Promise.resolve();`,
+    `m&&(e=e.slice(m[0].length),${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS||`,
+    `(${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS=new Map),`,
+    `${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS.get(m[1])?.close?.());`,
+  ].join('');
+}
+
+function buildLegacyReplacementSnippet(serviceClassName) {
+  return [
+    `let m=s&&s.id==="${extensionIdentifier}"?`,
+    '/^\\x1Fcodex-vscode-terminal-tools:replace-notification:([^\\x1F]+)\\x1F/.exec(e):void 0;',
     `m&&(e=e.slice(m[0].length),${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS||`,
     `(${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS=new Map),`,
     `${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS.get(m[1])?.close?.());`,
@@ -33,6 +49,16 @@ function buildReplacementSnippet(serviceClassName) {
 }
 
 function buildReplacementHandleSnippet(serviceClassName) {
+  return [
+    'let u=this._notificationService.notify({severity:i,message:e,actions:{primary:r,secondary:l},source:s,priority:c?3:0,sticky:c});',
+    `m&&${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS.set(m[1],u);`,
+    `U.once(u.onDidClose)(()=>{m&&${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS?.get(m[1])===u&&`,
+    `${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS.delete(m[1]);n(void 0)})`,
+    `/* ${replacementPatchMarker}; ${closePatchMarker}. Reapply with patch-vscode-sticky-notifications. */`,
+  ].join('');
+}
+
+function buildLegacyReplacementHandleSnippet(serviceClassName) {
   return [
     'let u=this._notificationService.notify({severity:i,message:e,actions:{primary:r,secondary:l},source:s,priority:c?3:0,sticky:c});',
     `m&&${serviceClassName}.CODEX_REPLACEABLE_NOTIFICATIONS.set(m[1],u);`,
@@ -57,7 +83,7 @@ if (!fs.existsSync(workbenchPath)) {
 
 const source = fs.readFileSync(workbenchPath, 'utf8');
 
-if (source.includes(replacementPatchMarker)) {
+if (source.includes(replacementPatchMarker) && source.includes(closePatchMarker)) {
   if (source.includes(patchMarker) && source.includes(managedStickySourceSnippet)) {
     console.log(`Already patched: ${workbenchPath}`);
     process.exit(0);
@@ -88,23 +114,41 @@ if (!nextSource.includes(managedStickySourceSnippet)) {
   );
 }
 
-if (!nextSource.includes(notificationSourceSnippet) || !nextSource.includes(notificationHandleSnippet)) {
-  fail('Could not apply VS Code replaceable notifications patch safely. Re-check workbench bundle before patching.');
-}
-
 const serviceClassName = nextSource.match(urgentSourcesClassPattern)?.[1];
 if (!serviceClassName) {
   fail('Could not find VS Code notification service class. Re-check workbench bundle before patching.');
 }
 
-nextSource = nextSource.replace(
-  notificationSourceSnippet,
-  `${notificationSourceSnippet}${buildReplacementSnippet(serviceClassName)}`,
-);
-nextSource = nextSource.replace(
-  notificationHandleSnippet,
-  buildReplacementHandleSnippet(serviceClassName),
-);
+if (source.includes(replacementPatchMarker)) {
+  if (!source.includes(patchMarker) || !source.includes(managedStickySourceSnippet)) {
+    fail('Found an unknown sticky notifications patch marker. Re-check workbench bundle before patching.');
+  }
+
+  nextSource = nextSource.replace(
+    buildLegacyReplacementSnippet(serviceClassName),
+    buildReplacementSnippet(serviceClassName),
+  );
+  nextSource = nextSource.replace(
+    buildLegacyReplacementHandleSnippet(serviceClassName),
+    buildReplacementHandleSnippet(serviceClassName),
+  );
+  if (nextSource === source) {
+    fail('Could not upgrade VS Code replaceable notifications patch safely. Re-check workbench bundle before patching.');
+  }
+} else {
+  if (!nextSource.includes(notificationSourceSnippet) || !nextSource.includes(notificationHandleSnippet)) {
+    fail('Could not apply VS Code replaceable notifications patch safely. Re-check workbench bundle before patching.');
+  }
+
+  nextSource = nextSource.replace(
+    notificationSourceSnippet,
+    `${notificationSourceSnippet}${buildReplacementSnippet(serviceClassName)}`,
+  );
+  nextSource = nextSource.replace(
+    notificationHandleSnippet,
+    buildReplacementHandleSnippet(serviceClassName),
+  );
+}
 
 if (nextSource === source) {
   console.log(`Already patched: ${workbenchPath}`);

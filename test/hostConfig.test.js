@@ -932,6 +932,7 @@ test('checkWorkbenchPatches requires the IME terminal sendSequence hooks', () =>
       'codex-vscode-terminal-tools: terminal-attach-by-pid',
       'codex-vscode-terminal-tools: sticky-notifications',
       'codex-vscode-terminal-tools: replace-notification-by-session',
+      'codex-vscode-terminal-tools: close-notification-by-session',
       '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */',
       '_dispatch(e,t){let o=this.resolveKeyboardEvent(e),n=globalThis.__codexVscodeImeGuard?.defer?.(e,t,()=>this._doDispatch(o,t,!1));return n!==void 0?n:this._doDispatch(o,t,!1)}',
     ].join('\n'),
@@ -985,7 +986,7 @@ test('checkWorkbenchPatches requires the sticky notifications patch', () => {
 
   assert.deepEqual(checkWorkbenchPatches(workbenchPath), {
     ok: false,
-    detail: 'missing: sticky notifications, replaceable notifications',
+    detail: 'missing: sticky notifications, replaceable notifications, closeable notifications',
   });
 });
 
@@ -1006,6 +1007,7 @@ test('checkWorkbenchPatches requires replaceable notification support', () => {
       '__codexVscodeTerminalTabTitleBreaks',
       'codex-vscode-terminal-tools: terminal-attach-by-pid',
       'codex-vscode-terminal-tools: sticky-notifications',
+      'codex-vscode-terminal-tools: close-notification-by-session',
       '/* Codex VS Code IME guard patch. Reapply with patch-vscode-ime-guard. */',
       'addEventListener("keydown",p,!0)',
       'Date.now()-m<180',
