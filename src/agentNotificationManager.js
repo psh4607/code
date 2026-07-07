@@ -1,7 +1,10 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseAgentNotificationJsonl } = require('./agentNotificationEvents');
+const {
+  isPresentableAgentNotificationEvent,
+  parseAgentNotificationJsonl,
+} = require('./agentNotificationEvents');
 const { encodeReplaceableNotificationMessage } = require('./agentNotificationReplacement');
 const { createAgentNotificationStore } = require('./agentNotificationStore');
 
@@ -27,7 +30,9 @@ const FLASH_ACTIVE_TERMINAL_TAB_COMMAND = 'codexTerminal.flashActiveTerminalTab'
 const FLASH_TERMINAL_TAB_DURATION_MS = 1000;
 const RECORDS_STORAGE_KEY = 'codexTerminal.agentNotifications.records';
 const SEEN_EVENT_IDS_STORAGE_KEY = 'codexTerminal.agentNotifications.seenEventIds';
+const SEEN_DEDUPE_KEYS_STORAGE_KEY = 'codexTerminal.agentNotifications.seenDedupeKeys';
 const MAX_SEEN_EVENT_IDS = 1000;
+const MAX_SEEN_DEDUPE_KEYS = 5000;
 
 function readFileDefault(filePath) {
   try {
@@ -167,6 +172,12 @@ function readStoredArray(context, key) {
   return Array.isArray(value) ? value : [];
 }
 
+function storedDedupeKeys(records) {
+  return (Array.isArray(records) ? records : [])
+    .map((record) => (typeof record?.dedupeKey === 'string' ? record.dedupeKey : undefined))
+    .filter(Boolean);
+}
+
 function normalizePid(value) {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 1 ? parsed : undefined;
@@ -203,9 +214,14 @@ function createAgentNotificationManager(vscode, {
   clearIntervalFn = clearInterval,
   store,
 } = {}) {
+  const initialRecords = readStoredArray(context, RECORDS_STORAGE_KEY);
   const seenEventIds = new Set(readStoredArray(context, SEEN_EVENT_IDS_STORAGE_KEY));
+  const seenDedupeKeys = new Set([
+    ...readStoredArray(context, SEEN_DEDUPE_KEYS_STORAGE_KEY),
+    ...storedDedupeKeys(initialRecords),
+  ]);
   const notificationStore = store || createAgentNotificationStore({
-    initialRecords: readStoredArray(context, RECORDS_STORAGE_KEY),
+    initialRecords,
   });
   let statusBarItem;
   let pollTimer;
@@ -217,9 +233,11 @@ function createAgentNotificationManager(vscode, {
       return pendingPersist;
     }
     const seenIds = Array.from(seenEventIds).slice(-MAX_SEEN_EVENT_IDS);
+    const seenDedupes = Array.from(seenDedupeKeys).slice(-MAX_SEEN_DEDUPE_KEYS);
     const records = notificationStore.records();
     const writeSnapshot = () => Promise.all([
       context.globalState.update(SEEN_EVENT_IDS_STORAGE_KEY, seenIds),
+      context.globalState.update(SEEN_DEDUPE_KEYS_STORAGE_KEY, seenDedupes),
       context.globalState.update(RECORDS_STORAGE_KEY, records),
     ]).then(
       () => undefined,
@@ -227,6 +245,23 @@ function createAgentNotificationManager(vscode, {
     );
     pendingPersist = pendingPersist.then(writeSnapshot, writeSnapshot);
     return pendingPersist;
+  }
+
+  function rememberDedupeKey(record) {
+    const dedupeKey = typeof record?.dedupeKey === 'string' ? record.dedupeKey : undefined;
+    if (!dedupeKey) {
+      return;
+    }
+    if (seenDedupeKeys.has(dedupeKey)) {
+      seenDedupeKeys.delete(dedupeKey);
+    }
+    seenDedupeKeys.add(dedupeKey);
+  }
+
+  function rememberDedupeKeys(records) {
+    for (const record of Array.isArray(records) ? records : []) {
+      rememberDedupeKey(record);
+    }
   }
 
   function updateStatusBar() {
@@ -301,6 +336,7 @@ function createAgentNotificationManager(vscode, {
     terminalMatch.terminal.show(false);
     await flashActiveTerminalTab();
     if (notificationStore.markRead(record.id)) {
+      rememberDedupeKey(record);
       persistState();
     }
     updateStatusBar();
@@ -321,6 +357,7 @@ function createAgentNotificationManager(vscode, {
       await openRecord(record);
     } else if (selected === 'Mark Read') {
       if (notificationStore.markRead(record.id)) {
+        rememberDedupeKey(record);
         persistState();
       }
       updateStatusBar();
@@ -329,6 +366,11 @@ function createAgentNotificationManager(vscode, {
 
   async function ingestEvent(event) {
     if (seenEventIds.has(event.id)) {
+      return;
+    }
+    if (isPresentableAgentNotificationEvent(event) && seenDedupeKeys.has(event.dedupeKey)) {
+      seenEventIds.add(event.id);
+      persistState();
       return;
     }
     const isTargetedEvent = Boolean(event.terminalPid || event.sessionId);
@@ -345,6 +387,9 @@ function createAgentNotificationManager(vscode, {
     const result = notificationStore.ingestEvent(resolvedEvent, {
       isActiveTerminalFocused: await isActiveFocusedRecord(resolvedEvent),
     });
+    if (result.record?.isRead || result.record?.isPresented) {
+      rememberDedupeKey(result.record);
+    }
     persistState();
     updateStatusBar();
     if (result.shouldPresent && result.record) {
@@ -412,6 +457,7 @@ function createAgentNotificationManager(vscode, {
   function markAgentNotificationsRead() {
     const count = notificationStore.markAllRead();
     if (count > 0) {
+      rememberDedupeKeys(notificationStore.records());
       persistState();
     }
     updateStatusBar();
@@ -419,8 +465,10 @@ function createAgentNotificationManager(vscode, {
   }
 
   function clearAgentNotifications() {
+    const records = notificationStore.records();
     const count = notificationStore.clear();
     if (count > 0) {
+      rememberDedupeKeys(records);
       persistState();
     }
     updateStatusBar();
@@ -444,6 +492,7 @@ module.exports = {
   DEFAULT_EVENTS_PATH,
   DEFAULT_SESSION_REGISTRY_PATH,
   RECORDS_STORAGE_KEY,
+  SEEN_DEDUPE_KEYS_STORAGE_KEY,
   SEEN_EVENT_IDS_STORAGE_KEY,
   MARK_AGENT_NOTIFICATIONS_READ_COMMAND,
   OPEN_LATEST_AGENT_NOTIFICATION_COMMAND,

@@ -511,7 +511,7 @@ test('manager does not replay read records when seen event ids are missing after
   assert.equal(manager._store.unreadCount(), 0);
 });
 
-test('manager persists records and seen event ids as notifications change', async () => {
+test('manager persists records, seen event ids, and seen dedupe keys as notifications change', async () => {
   const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const manager = createAgentNotificationManager(fake.vscode, {
     context: fake.context,
@@ -530,7 +530,31 @@ test('manager persists records and seen event ids as notifications change', asyn
   manager.markAgentNotificationsRead();
   await manager.dispose();
 
+  assert.deepEqual(fake.globalStateValues.get('codexTerminal.agentNotifications.seenDedupeKeys'), [
+    'codex:session-1:turn_finished',
+  ]);
   assert.equal(fake.globalStateValues.get('codexTerminal.agentNotifications.records')[0].isRead, true);
+});
+
+test('manager suppresses replayed dedupe keys after seen event ids roll over', async () => {
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
+  fake.globalStateValues.set('codexTerminal.agentNotifications.seenDedupeKeys', [
+    'codex:session-1:turn_finished',
+  ]);
+
+  const manager = createAgentNotificationManager(fake.vscode, {
+    context: fake.context,
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event({ id: 'replayed-event-after-rollover' }))}\n`,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.equal(fake.informationMessages.length, 0);
+  assert.equal(fake.statusBarItems[0].visible, false);
+  assert.equal(manager._store.unreadCount(), 0);
 });
 
 test('manager serializes notification state writes so older unread snapshots cannot revive read records', async () => {
