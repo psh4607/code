@@ -38,10 +38,11 @@ npm run ensure:code-app
 - VS Code user settings needed by these terminal workflows.
 - VS Code user keybindings for `Cmd+T`, `Cmd+W`, `Cmd+R`, and `Cmd+Shift+T`.
 - The `.zshrc` cwd-title hook for VS Code terminal tab titles.
-- The Codex `terminal_title` setting so Codex terminal tabs expose `thread-id`.
+- The Codex title/status settings and hook registry used for title-hidden session resume.
 - The local VS Code extension symlink under `~/.vscode/extensions`.
 - The global `patch-vscode-terminal-order` wrapper.
 - The global `patch-vscode-ime-guard` wrapper.
+- The native macOS notification bridge app used for clickable agent notifications.
 - The `Code.app` and upstream VS Code workbench bundle/CSS patches, sticky notification patch,
   Claude Code title-menu patch, runtime Dock icon patch, and app icon.
 
@@ -73,10 +74,11 @@ From any directory, the same patch can be run as:
 patch-vscode-terminal-order
 ```
 
-Run it again after manually updating VS Code. The global wrapper now refreshes `/Applications/Code.app`
-from the upstream VS Code app and runs all local workbench patches against both app bundles,
-including the IME composition guard described below. User setting `update.mode: none` is still
-managed so the shared VS Code profile does not silently update itself outside this flow.
+The global wrapper runs the full local patch sequence against the current managed `Code.app` and
+upstream VS Code bundles, including the IME composition guard described below. It does not refresh
+`/Applications/Code.app` from the upstream app; run `npm run apply` after VS Code updates or when
+host config drift needs to be normalized. User setting `update.mode: none` is still managed so the
+shared VS Code profile does not silently update itself outside this flow.
 
 To reapply only the sticky VS Code notification patch:
 
@@ -97,9 +99,10 @@ restart.
 
 ## Codex Session Auto Resume
 
-The extension keeps a small VS Code global-state snapshot for terminals whose tab title or shell
-execution command exposes a Codex session UUID. While VS Code is running it periodically checks those
-terminal process trees and remembers whether a matching Codex CLI process was actually active.
+The extension keeps a small VS Code global-state snapshot for terminals whose tab title, shell
+execution command, or managed SessionStart hook registry exposes a Codex session UUID. While VS Code
+is running it periodically checks those terminal process trees and remembers whether a matching
+Codex CLI process was actually active.
 
 On the next VS Code startup, after VS Code has had a chance to restore persistent terminals, the
 extension inspects each restored terminal in tab order. If the last snapshot said that terminal was
@@ -122,9 +125,11 @@ Settings:
 "codexTerminal.codexResumeStartupDelayMs": 1000
 ```
 
-For reliable matching, `npm run apply` keeps Codex `terminal_title` configured with `thread-id`.
-Without a visible session UUID, the extension intentionally refuses to match by cwd-only titles such
-as `~/projects/dalpha/inf`, because several terminals can share the same cwd.
+For readable terminal tabs, `npm run apply` removes `thread-id` from Codex
+`terminal_title` and `status_line` visible surfaces, then installs a SessionStart hook registry under
+`~/.codex/codex-vscode-terminal-tools/`. Without a visible session UUID, restore uses the hook
+registry and stored startup restore records only with startup-window, saved-session, idle-shell, and
+duplicate-resume guards. It does not move arbitrary cwd-only terminals into old sessions.
 
 ## VS Code App Icon
 

@@ -5,7 +5,10 @@ const {
   isPresentableAgentNotificationEvent,
   parseAgentNotificationJsonl,
 } = require('./agentNotificationEvents');
-const { encodeReplaceableNotificationMessage } = require('./agentNotificationReplacement');
+const {
+  agentNotificationReplacementKey,
+  encodeReplaceableNotificationMessage,
+} = require('./agentNotificationReplacement');
 const { createAgentNotificationStore } = require('./agentNotificationStore');
 
 const DEFAULT_EVENTS_PATH = path.join(
@@ -212,6 +215,7 @@ function createAgentNotificationManager(vscode, {
   readSessionRegistry = readSessionRegistryDefault,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
+  nativeNotificationBridge,
   store,
 } = {}) {
   const initialRecords = readStoredArray(context, RECORDS_STORAGE_KEY);
@@ -344,10 +348,15 @@ function createAgentNotificationManager(vscode, {
   }
 
   async function presentRecord(record) {
-    const message = encodeReplaceableNotificationMessage(
-      formatNotificationMessage(record),
-      record,
-    );
+    const formattedMessage = formatNotificationMessage(record);
+    if (nativeNotificationBridge?.notify) {
+      void Promise.resolve(
+        nativeNotificationBridge.notify(record, {
+          message: formattedMessage,
+        }),
+      ).catch(() => undefined);
+    }
+    const message = encodeReplaceableNotificationMessage(formattedMessage, record);
     const selected = await vscode.window.showInformationMessage(
       message,
       'Open Terminal',
@@ -454,6 +463,57 @@ function createAgentNotificationManager(vscode, {
     return openRecord(latest);
   }
 
+  function parseAgentNotificationUri(uri) {
+    if (!uri) {
+      return undefined;
+    }
+
+    if (typeof uri === 'string') {
+      try {
+        const parsed = new URL(uri);
+        const pathName = parsed.pathname.replace(/^\/+/, '');
+        if (pathName && pathName !== 'open-agent-notification') {
+          return undefined;
+        }
+        return {
+          id: parsed.searchParams.get('id') || undefined,
+          replacementKey: parsed.searchParams.get('replacementKey') || undefined,
+        };
+      } catch {
+        return undefined;
+      }
+    }
+
+    const pathName = typeof uri.path === 'string' ? uri.path.replace(/^\/+/, '') : '';
+    if (pathName && pathName !== 'open-agent-notification') {
+      return undefined;
+    }
+    const params = new URLSearchParams(typeof uri.query === 'string' ? uri.query : '');
+    return {
+      id: params.get('id') || undefined,
+      replacementKey: params.get('replacementKey') || undefined,
+    };
+  }
+
+  async function openAgentNotificationUri(uri) {
+    const parsed = parseAgentNotificationUri(uri);
+    if (!parsed?.id && !parsed?.replacementKey) {
+      return false;
+    }
+
+    const records = notificationStore.records();
+    const record = records.find((candidate) => candidate.id === parsed.id) ||
+      (parsed.replacementKey
+        ? records.find(
+            (candidate) => agentNotificationReplacementKey(candidate) === parsed.replacementKey,
+          )
+        : undefined);
+    if (!record) {
+      return false;
+    }
+    return openRecord(record);
+  }
+
   function markAgentNotificationsRead() {
     const count = notificationStore.markAllRead();
     if (count > 0) {
@@ -480,6 +540,7 @@ function createAgentNotificationManager(vscode, {
     dispose,
     flush: pollEvents,
     showAgentNotifications,
+    openAgentNotificationUri,
     openLatestAgentNotification,
     markAgentNotificationsRead,
     clearAgentNotifications,

@@ -12,6 +12,11 @@ const {
   createManagedCodeAppPaths,
   ensureManagedCodeApp: ensureManagedCodeAppDefault,
 } = require('./managedCodeApp');
+const {
+  checkMacosNotificationBridge: checkMacosNotificationBridgeStatus,
+  defaultMacosNotificationBridgeAppPath,
+  ensureMacosNotificationBridge: ensureMacosNotificationBridgeDefault,
+} = require('./macosNotificationBridge');
 
 const MANAGED_APPLY_TO_ALL_PROFILES = [
   'terminal.integrated.splitCwd',
@@ -179,11 +184,25 @@ const MANAGED_KEYBINDING_REPLACEMENTS = [
 
 const ZSH_CWD_TITLE_SNIPPET = [
   '# BEGIN codex-vscode-terminal-tools: vscode-cwd-title',
-  '# VS Code terminal tab title: show cwd as ~/...',
+  '# VS Code terminal tab title: show cwd with middle ellipsis',
   '_vscode_cwd_title() {',
   '  [[ "$TERM_PROGRAM" == "vscode" ]] || return',
   '',
-  '  local title="${PWD/#$HOME/~}"',
+  '  local cwd_real="${PWD:A}"',
+  '  local home_real="${HOME:A}"',
+  '  local title="$PWD"',
+  '  local relative_title',
+  '  local -a title_parts',
+  '  if [[ "$cwd_real" == "$home_real" || "$cwd_real" == "$home_real"/* ]]; then',
+  '    title="~${cwd_real#$home_real}"',
+  '  fi',
+  '  if [[ "$title" == "~/"* ]]; then',
+  '    relative_title="${title#\\~/}"',
+  '    title_parts=("${(@s:/:)relative_title}")',
+  '    if (( ${#title_parts[@]} >= 4 )); then',
+  '      title="~/${title_parts[1]}/.../${title_parts[-1]}"',
+  '    fi',
+  '  fi',
   "  printf '\\033]0;%s\\007' \"$title\"",
   '}',
   '',
@@ -312,6 +331,9 @@ function createDefaultPaths({
     ),
     wrapperPath: path.join(home, '.local', 'bin', 'patch-vscode-terminal-order'),
     imeWrapperPath: path.join(home, '.local', 'bin', 'patch-vscode-ime-guard'),
+    macosNotificationBridgeAppPath:
+      process.env.CODEX_MACOS_NOTIFICATION_BRIDGE_APP_PATH ||
+      defaultMacosNotificationBridgeAppPath({ home }),
     workbenchPath:
       process.env.VSCODE_WORKBENCH_MAIN ||
       path.join(managedAppPath, 'Contents', 'Resources', 'app', 'out', 'vs', 'workbench', 'workbench.desktop.main.js'),
@@ -797,8 +819,13 @@ function writeIfChanged(filePath, nextSource) {
 function applyHostConfig({
   paths = createDefaultPaths(),
   ensureManagedCodeApp = ensureManagedCodeAppDefault,
+  ensureMacosNotificationBridge = ensureMacosNotificationBridgeDefault,
 } = {}) {
   const managedCodeApp = ensureManagedCodeApp({ paths: paths.managedCodeAppPaths });
+  const macosNotificationBridge = ensureMacosNotificationBridge({
+    appPath: paths.macosNotificationBridgeAppPath,
+    projectRoot: paths.projectRoot,
+  });
   const settings = normalizeSettings(readJsoncFile(paths.userSettingsPath, {}));
   const keybindings = normalizeKeybindings(readJsoncFile(paths.userKeybindingsPath, []));
   const zshrc = normalizeZshrc(fs.existsSync(paths.zshrcPath) ? fs.readFileSync(paths.zshrcPath, 'utf8') : '');
@@ -826,6 +853,11 @@ function applyHostConfig({
       id: 'managedCodeApp',
       changed: managedCodeApp.changed,
       detail: managedCodeApp.detail || managedCodeApp.reason,
+    },
+    {
+      id: 'macosNotificationBridge',
+      changed: macosNotificationBridge.changed,
+      detail: macosNotificationBridge.detail,
     },
     {
       id: 'settings',
@@ -1255,6 +1287,7 @@ function checkHostConfig({
   checkOpaqueOverlays = true,
   checkTitlebarCenter = true,
   checkTerminalTabsLayout = true,
+  checkMacosNotificationBridge = true,
   checkSmartPaste = true,
   checkSmartPasteImageClipboard: smartPasteImageClipboardCheck = checkSmartPasteImageClipboard,
 } = {}) {
@@ -1396,6 +1429,20 @@ function checkHostConfig({
     );
   }
 
+  if (checkMacosNotificationBridge) {
+    const macosNotificationBridge = checkMacosNotificationBridgeStatus({
+      appPath: paths.macosNotificationBridgeAppPath,
+      projectRoot: paths.projectRoot,
+    });
+    statuses.push(
+      status(
+        'macosNotificationBridge',
+        macosNotificationBridge.ok,
+        macosNotificationBridge.detail,
+      ),
+    );
+  }
+
   if (checkSmartPaste) {
     const smartPaste = smartPasteImageClipboardCheck();
     statuses.push(status('smartPaste', smartPaste.ok, smartPaste.detail));
@@ -1410,6 +1457,7 @@ module.exports = {
   applyHostConfig,
   checkClaudeTitleMenus,
   checkHostConfig,
+  checkMacosNotificationBridge: checkMacosNotificationBridgeStatus,
   checkVscodeDockIconPatch,
   checkVscodeIconPatch,
   checkVscodeOpaqueOverlaysPatch,
@@ -1422,6 +1470,7 @@ module.exports = {
   ensureExtensionLink,
   ensureGlobalPatchWrapper,
   ensureImeGuardPatchWrapper,
+  ensureMacosNotificationBridge: ensureMacosNotificationBridgeDefault,
   normalizeCodexHooksJson,
   normalizeKeybindings,
   normalizeCodexConfigToml,

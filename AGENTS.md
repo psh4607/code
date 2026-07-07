@@ -41,16 +41,18 @@ project and keep host writes repeatable.
 - VS Code user settings in `/Users/seongho/Library/Application Support/Code/User/settings.json`.
 - VS Code user keybindings in `/Users/seongho/Library/Application Support/Code/User/keybindings.json`.
 - The `.zshrc` cwd-title hook used by VS Code terminal tab titles.
-- The Codex `terminal_title` config so Codex tabs expose `thread-id`.
+- The Codex title/status config and SessionStart hook registry used for title-hidden session resume.
 - The local extension symlink under `~/.vscode/extensions`.
 - The global `patch-vscode-terminal-order` wrapper.
 - The global `patch-vscode-ime-guard` wrapper.
+- The native macOS notification bridge app used for clickable agent notifications.
 - The `Code.app` and upstream VS Code workbench bundle/CSS patches, Claude Code title-menu patch,
   managed VS Code app icon, and runtime Dock icon patch.
 
 The important source files are:
 
 - `src/hostConfig.js`: desired host state, normalization, and drift checks.
+- `src/macosNotificationBridge.js`: native macOS notification bridge build/check/send helpers.
 - `scripts/apply-host-config.js`: ensure managed `Code.app`, normalize host files, run `npm run patch`, then verify.
 - `scripts/patch-vscode-all-targets.js`: apply every local bundle/CSS/icon patch to both app
   bundles, then sign each target.
@@ -135,7 +137,8 @@ using. `Developer: Reload Window` is not enough because those bundles are loaded
 - Keep VS Code excluded from Homebrew upgrades with `brew pin --cask visual-studio-code` unless the user explicitly asks to restore automatic upgrades. `update.mode: none` and the Homebrew pin cover different update paths.
 - Do not hand-edit host files as a one-off fix when the state should be durable. Put the desired state in `src/hostConfig.js` or a patch script, then use `npm run apply`.
 - Do not silently relax managed settings or keybindings to make `doctor` pass. Explain the tradeoff first if a user request conflicts with the managed behavior.
-- Do not match Codex terminal sessions by cwd alone. Session resume depends on a visible `thread-id` in the Codex terminal title because several terminals can share the same cwd.
+- Do not match arbitrary Codex terminal sessions by cwd alone. Title-hidden session resume depends
+  on the SessionStart hook registry, stored startup restore records, and startup-window and saved-session guards because several terminals can share the same cwd.
 - Do not treat VS Code persistent sessions and `codex resume <session-id>` as the same mechanism. Persistent sessions are VS Code's PTY/process restore path; Codex auto-resume only sends a resume command into a restored idle shell when the old Codex process was not revived.
 - If direct VS Code API support exists, prefer it. Patch the minified VS Code bundle only for host-local behaviors the public extension API cannot provide.
 - If a patch script says VS Code internals changed, stop and inspect the current target in
@@ -206,7 +209,8 @@ For persistent terminal or Codex auto-resume regressions:
 - Check `src/detachedTerminalTtl.js` for shutdown behavior; it should not kill
   open terminals during normal extension deactivation.
 - Check `src/codexSessionResume.js` for process-tree and idle-shell detection.
-- Keep cwd-only matching disabled.
+- Keep cwd-only restore limited to title-hidden startup terminals with registry or stored-record
+  evidence, saved-session verification, and duplicate-resume protection.
 
 For app icon, Dock icon, watermark, or Claude title-menu regressions:
 

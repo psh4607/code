@@ -65,3 +65,37 @@ test('package contributes agent notification commands and jump-to-unread keybind
     true,
   );
 });
+
+test('package activates on extension URI callbacks for native notification clicks', () => {
+  const packageJson = readPackageJson();
+
+  assert.equal(packageJson.activationEvents.includes('onUri'), true);
+});
+
+test('package contributes native macOS notification settings', () => {
+  const packageJson = readPackageJson();
+  const properties = packageJson.contributes.configuration.properties;
+
+  assert.equal(
+    properties['codexTerminal.agentNotifications.nativeMacos.enabled'].default,
+    true,
+  );
+  assert.equal(
+    properties['codexTerminal.agentNotifications.nativeMacos.sound'].default,
+    true,
+  );
+  assert.equal(
+    properties['codexTerminal.agentNotifications.nativeMacos.uriScheme'].default,
+    'vscode',
+  );
+});
+
+test('package terminal tabs layout patch script includes the row-height workbench patch', () => {
+  const packageJson = readPackageJson();
+  const script = packageJson.scripts['patch:vscode-terminal-tabs-layout'];
+
+  assert.equal(script.includes('--only patch-vscode-terminal-order.js'), true);
+  assert.equal(script.includes('--only patch-vscode-terminal-tabs-title-breaks.js'), true);
+  assert.equal(script.includes('--only patch-vscode-terminal-tabs-layout.js'), true);
+  assert.equal(script.includes('--only sign-vscode-app.js'), true);
+});

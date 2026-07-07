@@ -1,8 +1,10 @@
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { ensureMacosNotificationBridge } = require('../src/macosNotificationBridge');
 const {
   applyHostConfig,
   checkVscodeDockIconPatch,
@@ -45,6 +47,10 @@ test('createDefaultPaths targets managed Code and upstream VS Code bundle patche
     '/Applications/Code.app/Contents/Resources/codex-warp-glass-sky.png',
   );
   assert.equal(
+    paths.macosNotificationBridgeAppPath,
+    '/tmp/home/Library/Application Support/codex-vscode-terminal-tools/CodeAgentNotificationBridge.app',
+  );
+  assert.equal(
     paths.sourceWorkbenchPath,
     '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js',
   );
@@ -79,12 +85,18 @@ test('applyHostConfig ensures the managed Code app before shared host config', (
       applicationsDir: tmpDir,
     }),
     ensureManagedCodeApp: () => ({ changed: true, reason: 'managed app missing' }),
+    ensureMacosNotificationBridge: () => ({ changed: true, detail: 'bridge rebuilt' }),
   });
 
   assert.deepEqual(results[0], {
     id: 'managedCodeApp',
     changed: true,
     detail: 'managed app missing',
+  });
+  assert.deepEqual(results.find((result) => result.id === 'macosNotificationBridge'), {
+    id: 'macosNotificationBridge',
+    changed: true,
+    detail: 'bridge rebuilt',
   });
 });
 
@@ -354,6 +366,33 @@ test('normalizeZshrc upgrades the cwd-title hook to the managed block', () => {
   assert.equal(value.includes('# User configuration'), true);
 });
 
+test('managed cwd-title hook shortens deep home paths with a middle ellipsis', () => {
+  const tmpDir = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-')),
+  );
+  const home = path.join(tmpDir, 'home');
+  const cwd = path.join(home, 'projects', 'seongho', 'projects', 'codex-vscode-terminal-tools');
+  fs.mkdirSync(cwd, { recursive: true });
+
+  const { value } = normalizeZshrc('');
+  const managedBlock = value.match(
+    /# BEGIN codex-vscode-terminal-tools: vscode-cwd-title\n[\s\S]*?# END codex-vscode-terminal-tools: vscode-cwd-title/,
+  )?.[0];
+  assert.ok(managedBlock);
+
+  const output = childProcess.execFileSync('zsh', ['-fc', `${managedBlock}\n_vscode_cwd_title`], {
+    cwd,
+    env: {
+      ...process.env,
+      HOME: home,
+      TERM_PROGRAM: 'vscode',
+    },
+    encoding: 'utf8',
+  });
+
+  assert.equal(output, '\u001b]0;~/projects/.../codex-vscode-terminal-tools\u0007');
+});
+
 test('normalizeCodexConfigToml removes Codex thread id from visible title surfaces', () => {
   const source = [
     'model = "gpt-5"',
@@ -560,6 +599,7 @@ test('checkHostConfig reports managed files as ok', () => {
     checkOpaqueOverlays: false,
     checkTitlebarCenter: false,
     checkTerminalTabsLayout: false,
+    checkMacosNotificationBridge: false,
     checkSmartPasteImageClipboard: () => ({
       ok: true,
       detail: 'clipboard has no image; image file fallback smoke skipped',
@@ -580,6 +620,74 @@ test('checkHostConfig reports managed files as ok', () => {
       smartPaste: true,
     },
   );
+});
+
+test('checkHostConfig reports the managed macOS notification bridge app', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-config-test-'));
+  const projectRoot = path.join(tmpDir, 'project');
+  const sourceDir = path.join(projectRoot, 'native', 'CodeAgentNotificationBridge');
+  const assetsDir = path.join(projectRoot, 'assets');
+  const appPath = path.join(tmpDir, 'CodeAgentNotificationBridge.app');
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.mkdirSync(assetsDir, { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'main.swift'), 'print("bridge")\n');
+  fs.writeFileSync(path.join(assetsDir, 'warp-glass-sky.icns'), 'icon-bytes');
+  fs.writeFileSync(
+    path.join(sourceDir, 'Info.plist'),
+    [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<plist version="1.0"><dict>',
+      '<key>CFBundleExecutable</key><string>CodeAgentNotificationBridge</string>',
+      '<key>CFBundleIdentifier</key><string>com.seongho.CodeAgentNotificationBridge</string>',
+      '<key>CFBundleIconFile</key><string>CodeAgentNotificationBridge</string>',
+      '</dict></plist>',
+      '',
+    ].join('\n'),
+  );
+  ensureMacosNotificationBridge({
+    appPath,
+    projectRoot,
+    platform: 'darwin',
+    execFileSync(command, args) {
+      if (command === 'swiftc') {
+        fs.writeFileSync(args.at(-1), '#!/bin/sh\n');
+      }
+      return '';
+    },
+  });
+
+  const statuses = checkHostConfig({
+    paths: {
+      home: path.join(tmpDir, 'home'),
+      projectRoot,
+      userSettingsPath: path.join(tmpDir, 'settings.json'),
+      userKeybindingsPath: path.join(tmpDir, 'keybindings.json'),
+      zshrcPath: path.join(tmpDir, '.zshrc'),
+      codexConfigPath: path.join(tmpDir, 'config.toml'),
+      codexHooksPath: path.join(tmpDir, 'hooks.json'),
+      extensionPath: path.join(tmpDir, 'extension'),
+      wrapperPath: path.join(tmpDir, 'patch-vscode-terminal-order'),
+      imeWrapperPath: path.join(tmpDir, 'patch-vscode-ime-guard'),
+      macosNotificationBridgeAppPath: appPath,
+    },
+    checkManagedCodeApp: false,
+    checkWorkbench: false,
+    checkClaude: false,
+    checkVscodeIcon: false,
+    checkDockIcon: false,
+    checkWatermark: false,
+    checkOpaqueOverlays: false,
+    checkTitlebarCenter: false,
+    checkTerminalTabsLayout: false,
+    checkSmartPaste: false,
+  });
+  const byId = Object.fromEntries(statuses.map((status) => [status.id, status]));
+
+  assert.deepEqual(byId.macosNotificationBridge, {
+    id: 'macosNotificationBridge',
+    ok: true,
+    detail: 'macOS notification bridge app is installed',
+  });
 });
 
 test('checkHostConfig includes managed and upstream bundle patch statuses', () => {
@@ -616,6 +724,7 @@ test('checkHostConfig includes managed and upstream bundle patch statuses', () =
     paths,
     checkManagedCodeApp: false,
     checkClaude: false,
+    checkMacosNotificationBridge: false,
     checkSmartPaste: false,
   });
   const byId = Object.fromEntries(statuses.map((status) => [status.id, status]));
@@ -681,6 +790,7 @@ test('checkHostConfig includes smart paste image clipboard status', () => {
     checkOpaqueOverlays: false,
     checkTitlebarCenter: false,
     checkTerminalTabsLayout: false,
+    checkMacosNotificationBridge: false,
     checkSmartPaste: true,
     checkSmartPasteImageClipboard: () => ({
       ok: true,

@@ -10,6 +10,7 @@
   "main": "./extension.js",
   "activationEvents": [
     "onStartupFinished",
+    "onUri",
     "onCommand:codexTerminal.newFromActiveCwd",
     "onCommand:codexTerminal.renameThread",
     "onCommand:codexTerminal.smartPaste",
@@ -68,6 +69,21 @@
           "description": "Interval for polling the local Codex agent notification event log.",
           "default": 1000,
           "minimum": 100
+        },
+        "codexTerminal.agentNotifications.nativeMacos.enabled": {
+          "type": "boolean",
+          "description": "Enable native macOS notifications for Codex and agent lifecycle notifications.",
+          "default": true
+        },
+        "codexTerminal.agentNotifications.nativeMacos.sound": {
+          "type": "boolean",
+          "description": "Play the default macOS notification sound for native Codex and agent notifications.",
+          "default": true
+        },
+        "codexTerminal.agentNotifications.nativeMacos.uriScheme": {
+          "type": "string",
+          "description": "VS Code URI scheme used when opening native notification clicks.",
+          "default": "vscode"
         }
       }
     },
@@ -149,6 +165,7 @@
   },
   "scripts": {
     "apply": "node scripts/apply-host-config.js",
+    "build:macos-notification-bridge": "node scripts/build-macos-notification-bridge.js",
     "doctor": "node scripts/doctor.js",
     "ensure:code-app": "node scripts/ensure-managed-code-app.js",
     "patch": "node scripts/patch-vscode-all-targets.js",
@@ -162,7 +179,7 @@
     "patch:vscode-titlebar-center": "node scripts/patch-vscode-all-targets.js --only patch-vscode-titlebar-center.js --only sign-vscode-app.js",
     "patch:vscode-terminal-order": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-order.js --only sign-vscode-app.js",
     "patch:vscode-sticky-notifications": "node scripts/patch-vscode-all-targets.js --only patch-vscode-sticky-notifications.js --only sign-vscode-app.js",
-    "patch:vscode-terminal-tabs-layout": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-tabs-title-breaks.js --only patch-vscode-terminal-tabs-layout.js --only sign-vscode-app.js",
+    "patch:vscode-terminal-tabs-layout": "node scripts/patch-vscode-all-targets.js --only patch-vscode-terminal-order.js --only patch-vscode-terminal-tabs-title-breaks.js --only patch-vscode-terminal-tabs-layout.js --only sign-vscode-app.js",
     "patch:vscode-watermark": "node scripts/patch-vscode-all-targets.js --only patch-vscode-watermark.js --only sign-vscode-app.js",
     "record:terminal-input": "node scripts/terminal-input-recorder.js",
     "test": "node --test test/*.test.js"

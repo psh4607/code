@@ -24,6 +24,9 @@ const {
   SHOW_AGENT_NOTIFICATIONS_COMMAND,
   createAgentNotificationManager,
 } = require('./src/agentNotificationManager');
+const {
+  createMacosNotificationBridge,
+} = require('./src/macosNotificationBridge');
 
 let detachedTerminalTtlManager;
 let codexSessionResumeManager;
@@ -49,16 +52,37 @@ function activate(context) {
   });
   titlebarInfoManager.start();
   const agentNotificationConfig = vscode.workspace.getConfiguration('codexTerminal');
+  const nativeNotificationBridge =
+    process.platform === 'darwin' &&
+    agentNotificationConfig.get('agentNotifications.nativeMacos.enabled', true)
+      ? createMacosNotificationBridge({
+          scheme: agentNotificationConfig.get(
+            'agentNotifications.nativeMacos.uriScheme',
+            'vscode',
+          ),
+          sound: agentNotificationConfig.get(
+            'agentNotifications.nativeMacos.sound',
+            true,
+          ),
+        })
+      : undefined;
   agentNotificationManager = createAgentNotificationManager(vscode, {
     context,
     pollIntervalMs: agentNotificationConfig.get(
       'agentNotifications.pollIntervalMs',
       1000,
     ),
+    nativeNotificationBridge,
   });
   if (agentNotificationConfig.get('agentNotifications.enabled', true)) {
     agentNotificationManager.start();
   }
+
+  const uriHandler = vscode.window.registerUriHandler?.({
+    handleUri(uri) {
+      return agentNotificationManager.openAgentNotificationUri(uri);
+    },
+  });
 
   context.subscriptions.push(
     detachedTerminalTtlManager,
@@ -66,6 +90,7 @@ function activate(context) {
     terminalCwdColorManager,
     titlebarInfoManager,
     agentNotificationManager,
+    ...(uriHandler ? [uriHandler] : []),
     vscode.commands.registerCommand(
       'codexTerminal.newFromActiveCwd',
       createNewTerminalFromActiveCwdCommand(vscode),

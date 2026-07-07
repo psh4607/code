@@ -33,6 +33,7 @@ function createFakeVscode({
   terminals = [],
   informationMessageSelection,
   deferGlobalStateUpdates = false,
+  windowFocused = false,
 } = {}) {
   const statusBarItems = [];
   const informationMessages = [];
@@ -60,7 +61,7 @@ function createFakeVscode({
       window: {
         activeTerminal,
         terminals,
-        state: { focused: false },
+        state: { focused: windowFocused },
         createStatusBarItem(alignment, priority) {
           const item = {
             alignment,
@@ -194,6 +195,58 @@ test('manager does not reveal or flash terminals when presenting a notification'
   assert.deepEqual(fake.executedCommands, []);
 });
 
+test('manager sends a native macOS notification when presenting a new unread record', async () => {
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
+  const nativeNotifications = [];
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event({ body: 'Ready' }))}\n`,
+    nativeNotificationBridge: {
+      async notify(record, options) {
+        nativeNotifications.push({ record, options });
+        return { ok: true };
+      },
+    },
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.deepEqual(nativeNotifications.map((entry) => entry.record.id), ['event-1']);
+  assert.deepEqual(nativeNotifications.map((entry) => entry.options.message), [
+    'Codex finished\nproject · session session-1 · Complete\nReady',
+  ]);
+});
+
+test('manager does not send a native notification for the focused active terminal', async () => {
+  const terminal = terminalWithPid(1234);
+  const fake = createFakeVscode({
+    activeTerminal: terminal,
+    terminals: [terminal],
+    windowFocused: true,
+  });
+  const nativeNotifications = [];
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event())}\n`,
+    nativeNotificationBridge: {
+      async notify(record) {
+        nativeNotifications.push(record);
+        return { ok: true };
+      },
+    },
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.equal(nativeNotifications.length, 0);
+  assert.equal(fake.informationMessages.length, 0);
+  assert.equal(manager._store.unreadCount(), 0);
+});
+
 test('manager does not present the same event twice across polls', async () => {
   const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
   const source = `${JSON.stringify(event())}\n`;
@@ -324,6 +377,67 @@ test('manager opens the matching Codex session terminal from the session registr
   assert.equal(terminal.shown, true);
   assert.equal(terminal.preserveFocus, false);
   assert.equal(fake.statusBarItems[0].visible, false);
+});
+
+test('manager opens a native notification click URI by event id', async () => {
+  const terminal = terminalWithPid(1234);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => `${JSON.stringify(event())}\n`,
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.equal(
+    await manager.openAgentNotificationUri({
+      path: '/open-agent-notification',
+      query: 'id=event-1&replacementKey=session%3Asession-1',
+    }),
+    true,
+  );
+  assert.deepEqual(terminal.showCalls, [false]);
+  assert.equal(fake.statusBarItems[0].visible, false);
+});
+
+test('manager opens the latest matching record when a native click URI names a replaced event', async () => {
+  const terminal = terminalWithPid(1234);
+  const fake = createFakeVscode({ terminals: [terminal] });
+  const events = [
+    event({
+      id: 'event-1',
+      title: 'First update',
+      dedupeKey: 'codex:session-1:turn_finished:first',
+      createdAt: 1000,
+    }),
+    event({
+      id: 'event-2',
+      title: 'Second update',
+      dedupeKey: 'codex:session-1:turn_finished:second',
+      createdAt: 2000,
+    }),
+  ];
+  const manager = createAgentNotificationManager(fake.vscode, {
+    eventsPath: '/tmp/events.jsonl',
+    pollIntervalMs: 0,
+    readFile: () => events.map((record) => JSON.stringify(record)).join('\n'),
+  });
+
+  manager.start();
+  await manager.flush();
+
+  assert.deepEqual(manager._store.records().map((record) => record.id), ['event-2']);
+  assert.equal(
+    await manager.openAgentNotificationUri({
+      path: '/open-agent-notification',
+      query: 'id=event-1&replacementKey=session%3Asession-1',
+    }),
+    true,
+  );
+  assert.deepEqual(terminal.showCalls, [false]);
+  assert.equal(manager._store.records()[0].isRead, true);
 });
 
 test('manager falls back to the Codex session registry when the event pid is stale', async () => {
