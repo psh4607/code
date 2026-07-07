@@ -16,7 +16,7 @@ struct NotificationPayload: Decodable {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        installApplicationIcon()
         let center = UNUserNotificationCenter.current()
         center.delegate = self
 
@@ -28,6 +28,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         schedule(payload, center: center)
+    }
+
+    private func installApplicationIcon() {
+        guard
+            let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+            let icon = NSImage(contentsOf: iconURL)
+        else {
+            return
+        }
+
+        icon.isTemplate = false
+        NSApp.applicationIconImage = icon
     }
 
     private func parsePayload() -> NotificationPayload? {

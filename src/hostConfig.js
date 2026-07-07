@@ -16,6 +16,7 @@ const {
   checkMacosNotificationBridge: checkMacosNotificationBridgeStatus,
   defaultMacosNotificationBridgeAppPath,
   ensureMacosNotificationBridge: ensureMacosNotificationBridgeDefault,
+  legacyMacosNotificationBridgeAppPaths,
 } = require('./macosNotificationBridge');
 
 const MANAGED_APPLY_TO_ALL_PROFILES = [
@@ -303,6 +304,11 @@ function createDefaultPaths({
   });
   const managedAppPath = managedCodeAppPaths.managedAppPath;
   const sourceAppPath = managedCodeAppPaths.sourceAppPath;
+  const macosNotificationBridgeAppPath =
+    process.env.CODEX_MACOS_NOTIFICATION_BRIDGE_APP_PATH ||
+    defaultMacosNotificationBridgeAppPath({ home });
+  const macosNotificationBridgeLegacyAppPaths = legacyMacosNotificationBridgeAppPaths({ home })
+    .filter((legacyAppPath) => path.resolve(legacyAppPath) !== path.resolve(macosNotificationBridgeAppPath));
 
   return {
     home,
@@ -331,9 +337,8 @@ function createDefaultPaths({
     ),
     wrapperPath: path.join(home, '.local', 'bin', 'patch-vscode-terminal-order'),
     imeWrapperPath: path.join(home, '.local', 'bin', 'patch-vscode-ime-guard'),
-    macosNotificationBridgeAppPath:
-      process.env.CODEX_MACOS_NOTIFICATION_BRIDGE_APP_PATH ||
-      defaultMacosNotificationBridgeAppPath({ home }),
+    macosNotificationBridgeAppPath,
+    macosNotificationBridgeLegacyAppPaths,
     workbenchPath:
       process.env.VSCODE_WORKBENCH_MAIN ||
       path.join(managedAppPath, 'Contents', 'Resources', 'app', 'out', 'vs', 'workbench', 'workbench.desktop.main.js'),
@@ -825,6 +830,7 @@ function applyHostConfig({
   const macosNotificationBridge = ensureMacosNotificationBridge({
     appPath: paths.macosNotificationBridgeAppPath,
     projectRoot: paths.projectRoot,
+    staleAppPaths: paths.macosNotificationBridgeLegacyAppPaths || [],
   });
   const settings = normalizeSettings(readJsoncFile(paths.userSettingsPath, {}));
   const keybindings = normalizeKeybindings(readJsoncFile(paths.userKeybindingsPath, []));
@@ -1430,6 +1436,17 @@ function checkHostConfig({
   }
 
   if (checkMacosNotificationBridge) {
+    const staleBridgeAppPath = (paths.macosNotificationBridgeLegacyAppPaths || [])
+      .find((legacyAppPath) => fs.existsSync(legacyAppPath));
+    if (staleBridgeAppPath) {
+      statuses.push(
+        status(
+          'macosNotificationBridgeLegacyApps',
+          false,
+          `stale macOS notification bridge app still exists: ${staleBridgeAppPath}`,
+        ),
+      );
+    }
     const macosNotificationBridge = checkMacosNotificationBridgeStatus({
       appPath: paths.macosNotificationBridgeAppPath,
       projectRoot: paths.projectRoot,

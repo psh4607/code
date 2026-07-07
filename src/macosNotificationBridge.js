@@ -5,26 +5,35 @@ const os = require('node:os');
 const path = require('node:path');
 const { agentNotificationReplacementKey } = require('./agentNotificationReplacement');
 
-const BRIDGE_APP_NAME = 'CodeAgentNotificationBridge.app';
+const BRIDGE_APP_NAME = 'Code Agent Notifications.app';
+const LEGACY_BRIDGE_APP_NAME = 'CodeAgentNotificationBridge.app';
 const BRIDGE_EXECUTABLE_NAME = 'CodeAgentNotificationBridge';
-const BRIDGE_BUNDLE_IDENTIFIER = 'com.seongho.CodeAgentNotificationBridge';
-const BRIDGE_ICON_NAME = 'CodeAgentNotificationBridge';
+const BRIDGE_BUNDLE_IDENTIFIER = 'com.seongho.CodeAgentNotifications';
+const BRIDGE_ICON_NAME = 'AppIcon';
 const BRIDGE_ICON_FILE = `${BRIDGE_ICON_NAME}.icns`;
+const BRIDGE_ASSETS_CAR_FILE = 'Assets.car';
 const BRIDGE_MARKER_VERSION = 1;
 const BRIDGE_MARKER_NAME = 'codex-vscode-terminal-tools-marker.json';
 const DEFAULT_EXTENSION_ID = 'seongho.codex-vscode-terminal-tools';
 const DEFAULT_URI_SCHEME = 'vscode';
 const OPEN_NOTIFICATION_PATH = 'open-agent-notification';
 const DEFAULT_NOTIFY_TIMEOUT_MS = 10000;
+const LSREGISTER_PATH = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
 
 function defaultMacosNotificationBridgeAppPath({ home = os.homedir() } = {}) {
-  return path.join(
-    home,
-    'Library',
-    'Application Support',
-    'codex-vscode-terminal-tools',
-    BRIDGE_APP_NAME,
-  );
+  return path.join(home, 'Applications', BRIDGE_APP_NAME);
+}
+
+function legacyMacosNotificationBridgeAppPaths({ home = os.homedir() } = {}) {
+  return [
+    path.join(
+      home,
+      'Library',
+      'Application Support',
+      'codex-vscode-terminal-tools',
+      LEGACY_BRIDGE_APP_NAME,
+    ),
+  ];
 }
 
 function macosNotificationBridgeExecutablePath(appPath) {
@@ -43,6 +52,10 @@ function macosNotificationBridgeIconPath(appPath) {
   return path.join(appPath, 'Contents', 'Resources', BRIDGE_ICON_FILE);
 }
 
+function macosNotificationBridgeAssetsCarPath(appPath) {
+  return path.join(appPath, 'Contents', 'Resources', BRIDGE_ASSETS_CAR_FILE);
+}
+
 function bridgeSourceDir(projectRoot) {
   return path.join(projectRoot, 'native', 'CodeAgentNotificationBridge');
 }
@@ -52,7 +65,7 @@ function bridgeSourcePaths(projectRoot) {
   return {
     mainSwiftPath: path.join(sourceDir, 'main.swift'),
     infoPlistPath: path.join(sourceDir, 'Info.plist'),
-    iconPath: path.join(projectRoot, 'assets', 'warp-glass-sky.icns'),
+    iconPath: path.join(projectRoot, 'assets', 'warp-glass-sky.png'),
   };
 }
 
@@ -100,6 +113,89 @@ function deepEqual(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function writeBridgeAppIconContentsJson(iconsetPath) {
+  const images = [
+    ['16x16', '1x', 'icon_16x16.png'],
+    ['16x16', '2x', 'icon_16x16@2x.png'],
+    ['32x32', '1x', 'icon_32x32.png'],
+    ['32x32', '2x', 'icon_32x32@2x.png'],
+    ['128x128', '1x', 'icon_128x128.png'],
+    ['128x128', '2x', 'icon_128x128@2x.png'],
+    ['256x256', '1x', 'icon_256x256.png'],
+    ['256x256', '2x', 'icon_256x256@2x.png'],
+    ['512x512', '1x', 'icon_512x512.png'],
+    ['512x512', '2x', 'icon_512x512@2x.png'],
+  ].map(([size, scale, filename]) => ({
+    idiom: 'mac',
+    size,
+    scale,
+    filename,
+  }));
+
+  fs.writeFileSync(
+    path.join(iconsetPath, 'Contents.json'),
+    `${JSON.stringify({ images, info: { author: 'xcode', version: 1 } }, null, 2)}\n`,
+  );
+}
+
+function compileBridgeAppIcon({ sourceIconPath, resourcesPath, execFileSync }) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-notification-bridge-assets-'));
+  try {
+    const assetCatalogPath = path.join(tmpDir, 'Assets.xcassets');
+    const iconsetPath = path.join(assetCatalogPath, `${BRIDGE_ICON_NAME}.appiconset`);
+    fs.mkdirSync(iconsetPath, { recursive: true });
+
+    const iconSizes = [
+      [16, 'icon_16x16.png'],
+      [32, 'icon_16x16@2x.png'],
+      [32, 'icon_32x32.png'],
+      [64, 'icon_32x32@2x.png'],
+      [128, 'icon_128x128.png'],
+      [256, 'icon_128x128@2x.png'],
+      [256, 'icon_256x256.png'],
+      [512, 'icon_256x256@2x.png'],
+      [512, 'icon_512x512.png'],
+      [1024, 'icon_512x512@2x.png'],
+    ];
+    for (const [pixels, filename] of iconSizes) {
+      execFileSync(
+        'sips',
+        [
+          '-z',
+          String(pixels),
+          String(pixels),
+          sourceIconPath,
+          '--out',
+          path.join(iconsetPath, filename),
+        ],
+        { stdio: 'pipe' },
+      );
+    }
+
+    writeBridgeAppIconContentsJson(iconsetPath);
+    execFileSync(
+      'xcrun',
+      [
+        'actool',
+        '--compile',
+        resourcesPath,
+        '--platform',
+        'macosx',
+        '--minimum-deployment-target',
+        '12.0',
+        '--app-icon',
+        BRIDGE_ICON_NAME,
+        '--output-partial-info-plist',
+        path.join(tmpDir, 'asset-catalog-partial-info.plist'),
+        assetCatalogPath,
+      ],
+      { stdio: 'pipe' },
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 function checkMacosNotificationBridge({
   appPath = defaultMacosNotificationBridgeAppPath(),
   projectRoot = path.resolve(__dirname, '..'),
@@ -119,8 +215,14 @@ function checkMacosNotificationBridge({
   if (!infoPlist.includes('<key>CFBundleIconFile</key>') || !infoPlist.includes(`<string>${BRIDGE_ICON_NAME}</string>`)) {
     return { ok: false, detail: 'macOS notification bridge bundle icon is not declared' };
   }
+  if (!infoPlist.includes('<key>CFBundleIconName</key>') || !infoPlist.includes(`<string>${BRIDGE_ICON_NAME}</string>`)) {
+    return { ok: false, detail: 'macOS notification bridge asset catalog icon is not declared' };
+  }
   if (!fs.existsSync(macosNotificationBridgeIconPath(appPath))) {
     return { ok: false, detail: 'macOS notification bridge icon resource missing' };
+  }
+  if (!fs.existsSync(macosNotificationBridgeAssetsCarPath(appPath))) {
+    return { ok: false, detail: 'macOS notification bridge asset catalog missing' };
   }
 
   const marker = readJsonFile(macosNotificationBridgeMarkerPath(appPath));
@@ -136,14 +238,37 @@ function ensureMacosNotificationBridge({
   projectRoot = path.resolve(__dirname, '..'),
   platform = process.platform,
   execFileSync = childProcess.execFileSync,
+  staleAppPaths = [],
 } = {}) {
   if (platform !== 'darwin') {
     return { changed: false, detail: 'not macOS; notification bridge skipped' };
   }
 
+  const removedStaleAppPaths = [];
+  for (const staleAppPath of staleAppPaths) {
+    if (!staleAppPath || path.resolve(staleAppPath) === path.resolve(appPath)) {
+      continue;
+    }
+    if (!fs.existsSync(staleAppPath)) {
+      continue;
+    }
+    try {
+      execFileSync(LSREGISTER_PATH, ['-u', staleAppPath], { stdio: 'pipe' });
+    } catch {
+      // A stale app can still be removed when LaunchServices no longer knows it.
+    }
+    fs.rmSync(staleAppPath, { recursive: true, force: true });
+    removedStaleAppPaths.push(staleAppPath);
+  }
+
   const current = checkMacosNotificationBridge({ appPath, projectRoot, platform });
   if (current.ok) {
-    return { changed: false, detail: current.detail };
+    return {
+      changed: removedStaleAppPaths.length > 0,
+      detail: removedStaleAppPaths.length > 0
+        ? `${current.detail}; removed stale bridge app: ${removedStaleAppPaths.join(', ')}`
+        : current.detail,
+    };
   }
 
   const { mainSwiftPath, infoPlistPath, iconPath } = bridgeSourcePaths(projectRoot);
@@ -157,11 +282,23 @@ function ensureMacosNotificationBridge({
     throw new Error(`macOS notification bridge icon source missing: ${iconPath}`);
   }
 
+  if (fs.existsSync(appPath)) {
+    try {
+      execFileSync(LSREGISTER_PATH, ['-u', appPath], { stdio: 'pipe' });
+    } catch {
+      // The app is about to be rebuilt; stale LaunchServices state is best-effort cleanup.
+    }
+  }
   fs.rmSync(appPath, { recursive: true, force: true });
   fs.mkdirSync(path.join(appPath, 'Contents', 'MacOS'), { recursive: true });
-  fs.mkdirSync(path.join(appPath, 'Contents', 'Resources'), { recursive: true });
+  const resourcesPath = path.join(appPath, 'Contents', 'Resources');
+  fs.mkdirSync(resourcesPath, { recursive: true });
   fs.copyFileSync(infoPlistPath, macosNotificationBridgeInfoPlistPath(appPath));
-  fs.copyFileSync(iconPath, macosNotificationBridgeIconPath(appPath));
+  compileBridgeAppIcon({
+    sourceIconPath: iconPath,
+    resourcesPath,
+    execFileSync,
+  });
 
   const executablePath = macosNotificationBridgeExecutablePath(appPath);
   execFileSync(
@@ -184,8 +321,19 @@ function ensureMacosNotificationBridge({
     `${JSON.stringify(expectedBridgeMarker(projectRoot), null, 2)}\n`,
   );
   execFileSync('codesign', ['--force', '--deep', '--sign', '-', appPath], { stdio: 'pipe' });
+  try {
+    execFileSync(LSREGISTER_PATH, ['-u', appPath], { stdio: 'pipe' });
+    execFileSync(LSREGISTER_PATH, ['-f', appPath], { stdio: 'pipe' });
+  } catch {
+    // LaunchServices refresh is best-effort; the app still registers when opened.
+  }
 
-  return { changed: true, detail: 'macOS notification bridge app rebuilt' };
+  return {
+    changed: true,
+    detail: removedStaleAppPaths.length > 0
+      ? `macOS notification bridge app rebuilt; removed stale bridge app: ${removedStaleAppPaths.join(', ')}`
+      : 'macOS notification bridge app rebuilt',
+  };
 }
 
 function cleanText(value) {
@@ -267,8 +415,8 @@ function sendMacosAgentNotificationPayload(payload, {
   return new Promise((resolve) => {
     try {
       execFile(
-        executablePath,
-        ['--notify', encodeBridgePayloadArgument(payload)],
+        '/usr/bin/open',
+        ['-W', '-n', appPath, '--args', '--notify', encodeBridgePayloadArgument(payload)],
         { timeout: timeoutMs, windowsHide: true },
         (error) => {
           if (error) {
@@ -314,7 +462,9 @@ module.exports = {
   defaultMacosNotificationBridgeAppPath,
   encodeBridgePayloadArgument,
   ensureMacosNotificationBridge,
+  legacyMacosNotificationBridgeAppPaths,
   macosNotificationBridgeExecutablePath,
+  macosNotificationBridgeAssetsCarPath,
   macosNotificationBridgeIconPath,
   sendMacosAgentNotificationPayload,
 };
