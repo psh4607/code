@@ -3,20 +3,31 @@ const test = require('node:test');
 const { createRenameThreadCommand } = require('../src/renameCommand');
 
 function createFakeVscode({ input, terminal } = {}) {
+  const executedCommands = [];
   const warnings = [];
   const sent = [];
   const activeTerminal = terminal === false
     ? undefined
     : {
+        name: terminal?.name ?? 'terminal',
         sendText(text, addNewLine) {
           sent.push([text, addNewLine]);
         },
       };
 
   return {
+    executedCommands,
     sent,
     warnings,
     vscode: {
+      commands: {
+        async executeCommand(command, ...args) {
+          executedCommands.push([command, ...args]);
+          if (command === 'workbench.action.terminal.renameWithArg') {
+            activeTerminal.name = args[0]?.name;
+          }
+        },
+      },
       window: {
         activeTerminal,
         async showInputBox() {
@@ -50,6 +61,27 @@ test('rename command sends slash command and requested name to the active termin
   ]);
   assert.deepEqual(waits, [25, 275, 75]);
   assert.deepEqual(fake.warnings, []);
+});
+
+test('rename command also updates the VS Code terminal tab title', async () => {
+  const fake = createFakeVscode({
+    input: '경로 축약',
+    terminal: {
+      name: 'codex-vscode-terminal... | 019f3afc-24d3-7b03-867f-746705cc3415',
+    },
+  });
+
+  await createRenameThreadCommand(fake.vscode, {
+    sleep() {},
+  })();
+
+  assert.deepEqual(fake.executedCommands, [
+    [
+      'workbench.action.terminal.renameWithArg',
+      { name: 'codex-vscode-terminal... | 경로 축약' },
+    ],
+  ]);
+  assert.equal(fake.vscode.window.activeTerminal.name, 'codex-vscode-terminal... | 경로 축약');
 });
 
 test('rename command uses short default delays', async () => {

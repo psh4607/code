@@ -1,9 +1,34 @@
 const { buildRenameSubmission } = require('./renameSequence');
 
+const RENAME_TERMINAL_COMMAND = 'workbench.action.terminal.renameWithArg';
+const SESSION_ID_RE =
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
+const SESSION_ID_GLOBAL_RE = new RegExp(SESSION_ID_RE.source, 'gi');
+
 function defaultSleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function buildTerminalTabTitle(currentTitle, threadName) {
+  const title = typeof currentTitle === 'string' ? currentTitle : '';
+  const name = String(threadName ?? '').trim();
+  if (!name) {
+    return title;
+  }
+
+  if (SESSION_ID_RE.test(title)) {
+    return title.replace(SESSION_ID_GLOBAL_RE, name);
+  }
+
+  if (title.includes(' | ')) {
+    const parts = title.split(' | ');
+    parts[parts.length - 1] = name;
+    return parts.join(' | ');
+  }
+
+  return name;
 }
 
 function createRenameThreadCommand(vscode, options = {}) {
@@ -38,9 +63,16 @@ function createRenameThreadCommand(vscode, options = {}) {
     terminal.sendText(submission.name, false);
     await sleep(confirmDelayMs);
     terminal.sendText('', true);
+
+    if (vscode.commands?.executeCommand) {
+      await vscode.commands.executeCommand(RENAME_TERMINAL_COMMAND, {
+        name: buildTerminalTabTitle(terminal.name, submission.name),
+      });
+    }
   };
 }
 
 module.exports = {
+  buildTerminalTabTitle,
   createRenameThreadCommand,
 };
