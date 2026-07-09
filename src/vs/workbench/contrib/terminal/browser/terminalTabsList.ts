@@ -60,7 +60,7 @@ import { isObject } from '../../../../base/common/types.js';
 const $ = DOM.$;
 
 export const enum TerminalTabsListSizes {
-	TabHeight = 22,
+	TabHeight = 68,
 	NarrowViewWidth = 46,
 	WideViewMinimumWidth = 80,
 	DefaultWidth = 120,
