@@ -9,20 +9,56 @@ import { IAction, toAction } from '../../../base/common/actions.js';
 import { MainThreadMessageServiceShape, MainContext, MainThreadMessageOptions } from '../common/extHost.protocol.js';
 import { extHostNamedCustomer, IExtHostContext } from '../../services/extensions/common/extHostCustomers.js';
 import { IDialogService, IPromptButton } from '../../../platform/dialogs/common/dialogs.js';
-import { INotificationService, INotificationSource, NotificationPriority } from '../../../platform/notification/common/notification.js';
+import { INotificationHandle, INotificationService, INotificationSource, NotificationPriority } from '../../../platform/notification/common/notification.js';
 import { Event } from '../../../base/common/event.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { IExtensionService } from '../../services/extensions/common/extensions.js';
 import { IDisposable } from '../../../base/common/lifecycle.js';
 
+export const CodexNotificationSourceId = 'seongho.codex-vscode-terminal-tools';
+export const CodexReplaceNotificationPrefix = '\x1Fcodex-vscode-terminal-tools:replace-notification:';
+export const CodexCloseNotificationPrefix = '\x1Fcodex-vscode-terminal-tools:close-notification:';
+
+export interface ICodexNotificationControl {
+	readonly message: string;
+	readonly replacementKey?: string;
+	readonly closeKey?: string;
+}
+
+export function parseCodexNotificationControl(source: string | INotificationSource | undefined, message: string): ICodexNotificationControl {
+	if (typeof source !== 'object' || source.id !== CodexNotificationSourceId) {
+		return { message };
+	}
+
+	const replacementMatch = new RegExp(`^${CodexReplaceNotificationPrefix}([^\\x1F]+)\\x1F`).exec(message);
+	if (replacementMatch?.[1]) {
+		return {
+			message: message.slice(replacementMatch[0].length),
+			replacementKey: replacementMatch[1]
+		};
+	}
+
+	const closeMatch = new RegExp(`^${CodexCloseNotificationPrefix}([^\\x1F]+)\\x1F`).exec(message);
+	if (closeMatch?.[1]) {
+		return {
+			message,
+			closeKey: closeMatch[1]
+		};
+	}
+
+	return { message };
+}
+
 @extHostNamedCustomer(MainContext.MainThreadMessageService)
 export class MainThreadMessageService implements MainThreadMessageServiceShape {
 
 	private extensionsListener: IDisposable;
+	private static readonly CODEX_REPLACEABLE_NOTIFICATIONS = new Map<string, INotificationHandle>();
 
 	private static readonly URGENT_NOTIFICATION_SOURCES = [
 		'vscode.github-authentication',
-		'vscode.microsoft-authentication'
+		'vscode.microsoft-authentication',
+		CodexNotificationSourceId
 	];
 
 	constructor(
@@ -79,6 +115,20 @@ export class MainThreadMessageService implements MainThreadMessageServiceShape {
 				source = nls.localize('defaultSource', "Extension");
 			}
 
+			const codexNotificationControl = parseCodexNotificationControl(source, message);
+			if (codexNotificationControl.closeKey) {
+				MainThreadMessageService.CODEX_REPLACEABLE_NOTIFICATIONS.get(codexNotificationControl.closeKey)?.close();
+				MainThreadMessageService.CODEX_REPLACEABLE_NOTIFICATIONS.delete(codexNotificationControl.closeKey);
+				resolve(undefined);
+				return;
+			}
+
+			message = codexNotificationControl.message;
+			const replacementKey = codexNotificationControl.replacementKey;
+			if (replacementKey) {
+				MainThreadMessageService.CODEX_REPLACEABLE_NOTIFICATIONS.get(replacementKey)?.close();
+			}
+
 			const secondaryActions: IAction[] = [];
 			if (options.source) {
 				secondaryActions.push(toAction({
@@ -99,9 +149,16 @@ export class MainThreadMessageService implements MainThreadMessageServiceShape {
 				sticky: sourceIsUrgent
 			});
 
+			if (replacementKey) {
+				MainThreadMessageService.CODEX_REPLACEABLE_NOTIFICATIONS.set(replacementKey, messageHandle);
+			}
+
 			// if promise has not been resolved yet, now is the time to ensure a return value
 			// otherwise if already resolved it means the user clicked one of the buttons
 			Event.once(messageHandle.onDidClose)(() => {
+				if (replacementKey && MainThreadMessageService.CODEX_REPLACEABLE_NOTIFICATIONS.get(replacementKey) === messageHandle) {
+					MainThreadMessageService.CODEX_REPLACEABLE_NOTIFICATIONS.delete(replacementKey);
+				}
 				resolve(undefined);
 			});
 		});

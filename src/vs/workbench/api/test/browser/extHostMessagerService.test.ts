@@ -4,16 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { MainThreadMessageService } from '../../browser/mainThreadMessageService.js';
+import { CodexCloseNotificationPrefix, CodexNotificationSourceId, CodexReplaceNotificationPrefix, MainThreadMessageService } from '../../browser/mainThreadMessageService.js';
 import { IDialogService, IPrompt, IPromptButton } from '../../../../platform/dialogs/common/dialogs.js';
-import { INotificationService, INotification, NoOpNotification, INotificationHandle, Severity, IPromptChoice, IPromptOptions, IStatusMessageOptions, INotificationSource, INotificationSourceFilter, NotificationsFilter, IStatusHandle } from '../../../../platform/notification/common/notification.js';
+import { INotificationService, INotification, NoOpNotification, INotificationHandle, Severity, IPromptChoice, IPromptOptions, IStatusMessageOptions, INotificationSource, INotificationSourceFilter, NotificationsFilter, IStatusHandle, NotificationPriority } from '../../../../platform/notification/common/notification.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { mock } from '../../../../base/test/common/mock.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { Event } from '../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { TestDialogService } from '../../../../platform/dialogs/test/common/testDialogService.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { TestExtensionService } from '../../../test/common/workbenchTestServices.js';
+import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 
 const emptyCommandService: ICommandService = {
 	_serviceBrand: undefined,
@@ -100,6 +101,35 @@ class EmptyNotificationService implements INotificationService {
 	}
 }
 
+class TestNotificationHandle extends NoOpNotification {
+	private readonly _onDidClose = new Emitter<void>();
+	override readonly onDidClose = this._onDidClose.event;
+	closed = false;
+
+	override close(): void {
+		if (!this.closed) {
+			this.closed = true;
+			this._onDidClose.fire();
+		}
+	}
+}
+
+class RecordingNotificationService extends EmptyNotificationService {
+	readonly notifications: INotification[] = [];
+	readonly handles: TestNotificationHandle[] = [];
+
+	constructor() {
+		super(() => { });
+	}
+
+	override notify(notification: INotification): INotificationHandle {
+		const handle = new TestNotificationHandle();
+		this.notifications.push(notification);
+		this.handles.push(handle);
+		return handle;
+	}
+}
+
 suite('ExtHostMessageService', function () {
 
 	test('propagte handle on select', async function () {
@@ -111,6 +141,52 @@ suite('ExtHostMessageService', function () {
 
 		const handle = await service.$showMessage(1, 'h', {}, [{ handle: 42, title: 'a thing', isCloseAffordance: true }]);
 		assert.strictEqual(handle, 42);
+
+		service.dispose();
+	});
+
+	test('keeps codex extension notifications sticky and replaceable', async function () {
+		const notificationService = new RecordingNotificationService();
+		const service = new MainThreadMessageService(null!, notificationService, emptyCommandService, new TestDialogService(), new TestExtensionService());
+		const source = { identifier: new ExtensionIdentifier(CodexNotificationSourceId), label: 'Codex' };
+
+		const first = service.$showMessage(Severity.Info, `${CodexReplaceNotificationPrefix}session%3A1\x1FFirst`, { source }, []);
+		await Promise.resolve();
+
+		assert.strictEqual(notificationService.notifications.length, 1);
+		assert.strictEqual(notificationService.notifications[0].message, 'First');
+		assert.strictEqual(notificationService.notifications[0].sticky, true);
+		assert.strictEqual(notificationService.notifications[0].priority, NotificationPriority.URGENT);
+
+		const second = service.$showMessage(Severity.Info, `${CodexReplaceNotificationPrefix}session%3A1\x1FSecond`, { source }, []);
+		await Promise.resolve();
+
+		assert.strictEqual(notificationService.notifications.length, 2);
+		assert.strictEqual(notificationService.notifications[1].message, 'Second');
+		assert.strictEqual(notificationService.handles[0].closed, true);
+		assert.strictEqual(await first, undefined);
+
+		notificationService.handles[1].close();
+		assert.strictEqual(await second, undefined);
+
+		service.dispose();
+	});
+
+	test('closes codex replaceable notifications without showing a new notification', async function () {
+		const notificationService = new RecordingNotificationService();
+		const service = new MainThreadMessageService(null!, notificationService, emptyCommandService, new TestDialogService(), new TestExtensionService());
+		const source = { identifier: new ExtensionIdentifier(CodexNotificationSourceId), label: 'Codex' };
+
+		const shown = service.$showMessage(Severity.Info, `${CodexReplaceNotificationPrefix}session%3A2\x1FVisible`, { source }, []);
+		await Promise.resolve();
+
+		const closed = service.$showMessage(Severity.Info, `${CodexCloseNotificationPrefix}session%3A2\x1F`, { source }, []);
+		await Promise.resolve();
+
+		assert.strictEqual(notificationService.notifications.length, 1);
+		assert.strictEqual(notificationService.handles[0].closed, true);
+		assert.strictEqual(await shown, undefined);
+		assert.strictEqual(await closed, undefined);
 
 		service.dispose();
 	});
