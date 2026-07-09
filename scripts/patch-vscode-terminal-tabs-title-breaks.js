@@ -9,14 +9,24 @@ const workbenchPath =
 const patchMarker =
   '/* Codex VS Code terminal tab title breaks patch. Reapply with patch-vscode-terminal-tabs-title-breaks. */';
 const patchHelper =
-  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.split("|").map(b=>b.trim().replace(/ /g,"\\u00a0")).filter(Boolean).join("\\n"):a);';
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d="$(loading~spin)",e=/^[\\u2800-\\u28ff]$/u,f=/^[\\u2800-\\u28ff]\\s+(.+)$/u;if(b.length>1&&e.test(b[0]))b[1]=d+" "+b[1],b.shift();else b[0]&&(b[0]=b[0].replace(f,d+" $1"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});';
 const legacyPatchHelpers = [
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.split("|").map(b=>b.trim().replace(/ /g,"\\u00a0")).filter(Boolean).join("\\n"):a);',
   'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.replace(/ /g,"\\u00a0").replace(/\\|/g,"|\\u200b"):a);',
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.replace(/\\|/g,"\\n"):a);',
 ];
-const originalTitleRender = 'u+=`$(${l}) ${i.title}`';
-const patchedTitleRender =
+const legacyOriginalTitleRender = 'u+=`$(${l}) ${i.title}`';
+const legacyPatchedTitleRender =
   'u+=`$(${l}) ${globalThis.__codexVscodeTerminalTabTitleBreaks?.(i.title)??i.title}`';
+const vscode127OriginalTitleRender = 'u+=`${i.title}`';
+const vscode127PatchedTitleRender =
+  'u+=`${globalThis.__codexVscodeTerminalTabTitleBreaks?.(i.title)??i.title}`';
+const titleRenderPatches = new Map([
+  [legacyOriginalTitleRender, legacyPatchedTitleRender],
+  [vscode127OriginalTitleRender, vscode127PatchedTitleRender],
+]);
 const patchBlock = `${patchMarker}\n${patchHelper}\n`;
+const knownPatchHelpers = [patchHelper, ...legacyPatchHelpers];
 
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
@@ -31,22 +41,36 @@ function fail(message) {
   process.exit(1);
 }
 
-function addPatchBlock(source) {
-  if (source.includes(patchMarker) && source.includes(patchHelper)) {
-    return source;
+function removeAll(source, needle) {
+  return source.split(needle).join('');
+}
+
+function normalizePatchBlock(source) {
+  let nextSource = source;
+
+  for (const helper of knownPatchHelpers) {
+    nextSource = removeAll(nextSource, `${patchMarker}\n${helper}\n`);
   }
 
-  for (const legacyPatchHelper of legacyPatchHelpers) {
-    const legacyPatchBlock = `${patchMarker}\n${legacyPatchHelper}\n`;
-    if (source.includes(legacyPatchBlock)) {
-      return source.replace(legacyPatchBlock, patchBlock);
-    }
-    if (source.includes(legacyPatchHelper)) {
-      return source.replace(legacyPatchHelper, patchHelper);
-    }
+  for (const helper of knownPatchHelpers) {
+    nextSource = removeAll(nextSource, helper);
   }
 
-  return `${patchBlock}${source}`;
+  nextSource = removeAll(nextSource, `${patchMarker}\n`);
+  return `${patchBlock}${nextSource}`;
+}
+
+function getMatches(source, needles) {
+  return needles
+    .map((needle) => ({
+      needle,
+      count: countOccurrences(source, needle),
+    }))
+    .filter((match) => match.count > 0);
+}
+
+function sumCounts(matches) {
+  return matches.reduce((total, match) => total + match.count, 0);
 }
 
 if (!fs.existsSync(workbenchPath)) {
@@ -54,13 +78,14 @@ if (!fs.existsSync(workbenchPath)) {
 }
 
 const source = fs.readFileSync(workbenchPath, 'utf8');
-const originalCount = countOccurrences(source, originalTitleRender);
-const patchedCount = countOccurrences(source, patchedTitleRender);
-const helperPresent = source.includes(patchMarker) && source.includes(patchHelper);
-const legacyHelperPresent =
-  source.includes(patchMarker) && legacyPatchHelpers.some((helper) => source.includes(helper));
+const originalMatches = getMatches(source, [...titleRenderPatches.keys()]);
+const patchedMatches = getMatches(source, [...titleRenderPatches.values()]);
+const originalCount = sumCounts(originalMatches);
+const patchedCount = sumCounts(patchedMatches);
+const nextSourceWithNormalizedHelper = normalizePatchBlock(source);
+const helperNeedsPatch = nextSourceWithNormalizedHelper !== source;
 
-if (patchedCount === 1 && originalCount === 0 && helperPresent) {
+if (patchedCount === 1 && originalCount === 0 && !helperNeedsPatch) {
   console.log(`Already patched: ${workbenchPath}`);
   process.exit(0);
 }
@@ -72,7 +97,7 @@ if (!source.includes('templateId="terminal.tabs"')) {
 if (
   !(
     (originalCount === 1 && patchedCount === 0) ||
-    (originalCount === 0 && patchedCount === 1 && (!helperPresent || legacyHelperPresent))
+    (originalCount === 0 && patchedCount === 1 && helperNeedsPatch)
   )
 ) {
   console.error('Could not apply VS Code terminal tab title breaks patch safely.');
@@ -85,10 +110,11 @@ if (
 const stat = fs.statSync(workbenchPath);
 const backupPath = `${workbenchPath}.codex-backup-${timestamp()}-terminal-tabs-title-breaks`;
 const tempPath = `${workbenchPath}.codex-tmp-${process.pid}.js`;
-let nextSource = addPatchBlock(source);
+let nextSource = nextSourceWithNormalizedHelper;
 
 if (originalCount === 1) {
-  nextSource = nextSource.replace(originalTitleRender, patchedTitleRender);
+  const [{ needle }] = originalMatches;
+  nextSource = nextSource.replace(needle, titleRenderPatches.get(needle));
 }
 
 fs.copyFileSync(workbenchPath, backupPath);

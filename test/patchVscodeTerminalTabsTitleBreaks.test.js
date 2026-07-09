@@ -28,6 +28,19 @@ const terminalTabsRenderer = [
   '',
 ].join('\n');
 
+const vscode127TerminalTabsRenderer = [
+  'var dft=class{constructor(){this.templateId="terminal.tabs"}',
+  'renderElement(i,e,t){let o=this._getVisibilityState.getHasText(),n=this._getVisibilityState.getHasActionBar(),s="",l=this._instantiationService.invokeFunction(Xte,i),u="";if(o)this.fillActionBar(i,t),u=s,i.icon&&(u+=`${i.title}`);else u=`${s}$(${l})`;t.label.setResource({resource:i.resource,name:u,description:o?i.description:void 0},{fileDecorations:{colors:!0,badges:o}})}}',
+  '',
+].join('\n');
+
+const currentPatchHelper =
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d="$(loading~spin)",e=/^[\\u2800-\\u28ff]$/u,f=/^[\\u2800-\\u28ff]\\s+(.+)$/u;if(b.length>1&&e.test(b[0]))b[1]=d+" "+b[1],b.shift();else b[0]&&(b[0]=b[0].replace(f,d+" $1"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});';
+const oldSplitPatchHelper =
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.split("|").map(b=>b.trim().replace(/ /g,"\\u00a0")).filter(Boolean).join("\\n"):a);';
+const simpleLineBreakPatchHelper =
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.replace(/\\|/g,"\\n"):a);';
+
 test('patch script formats terminal tab titles with pipe line breaks', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-title-breaks-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
@@ -40,8 +53,10 @@ test('patch script formats terminal tab titles with pipe line breaks', () => {
   const nextSource = fs.readFileSync(workbenchPath, 'utf8');
   assert.match(nextSource, /Codex VS Code terminal tab title breaks patch/);
   assert.match(nextSource, /__codexVscodeTerminalTabTitleBreaks/);
-  assert.equal(nextSource.includes('split("|").map(b=>b.trim().replace(/ /g,"\\u00a0"))'), true);
-  assert.equal(nextSource.includes('filter(Boolean).join("\\n")'), true);
+  assert.equal(nextSource.includes('$(loading~spin)'), true);
+  assert.equal(nextSource.includes('split("|").map(c=>c.trim())'), true);
+  assert.equal(nextSource.includes('filter(Boolean),d="$(loading~spin)"'), true);
+  assert.equal(nextSource.includes('join("\\n")'), true);
   assert.equal(nextSource.includes('u+=`$(${l}) ${i.title}`'), false);
   assert.equal(
     nextSource.includes(
@@ -67,7 +82,7 @@ test('patch script is idempotent when terminal tab title breaks are already patc
     workbenchPath,
     [
       '/* Codex VS Code terminal tab title breaks patch. Reapply with patch-vscode-terminal-tabs-title-breaks. */',
-      'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.split("|").map(b=>b.trim().replace(/ /g,"\\u00a0")).filter(Boolean).join("\\n"):a);',
+      currentPatchHelper,
       terminalTabsRenderer.replace(
         'u+=`$(${l}) ${i.title}`',
         'u+=`$(${l}) ${globalThis.__codexVscodeTerminalTabTitleBreaks?.(i.title)??i.title}`',
@@ -114,10 +129,67 @@ test('patch script upgrades the previous pipe breakpoint helper', () => {
   assert.match(result.stdout, /Patched VS Code terminal tab title breaks:/);
   const nextSource = fs.readFileSync(workbenchPath, 'utf8');
   assert.equal(nextSource.includes(legacyHelper), false);
-  assert.equal(nextSource.includes('filter(Boolean).join("\\n")'), true);
+  assert.equal(nextSource.includes(currentPatchHelper), true);
   assert.equal(
     nextSource.match(/Codex VS Code terminal tab title breaks patch/g).length,
     1,
+  );
+});
+
+test('patch script supports the VS Code 1.127 terminal tab title renderer', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-title-breaks-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  fs.writeFileSync(workbenchPath, vscode127TerminalTabsRenderer);
+
+  const result = runPatchScript({ workbenchPath });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Patched VS Code terminal tab title breaks:/);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.equal(nextSource.includes('u+=`${i.title}`'), false);
+  assert.equal(
+    nextSource.includes(
+      'u+=`${globalThis.__codexVscodeTerminalTabTitleBreaks?.(i.title)??i.title}`',
+    ),
+    true,
+  );
+  assert.equal(nextSource.includes(currentPatchHelper), true);
+});
+
+test('patch script normalizes duplicate title break helpers on an already patched renderer', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-title-breaks-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  fs.writeFileSync(
+    workbenchPath,
+    [
+      '/* Codex VS Code terminal tab title breaks patch. Reapply with patch-vscode-terminal-tabs-title-breaks. */',
+      simpleLineBreakPatchHelper,
+      '/* Patched by codex-vscode-terminal-tools. Reapply with patch-vscode-terminal-order. */',
+      '/* Codex VS Code terminal tab title breaks patch. Reapply with patch-vscode-terminal-tabs-title-breaks. */',
+      oldSplitPatchHelper,
+      vscode127TerminalTabsRenderer.replace(
+        'u+=`${i.title}`',
+        'u+=`${globalThis.__codexVscodeTerminalTabTitleBreaks?.(i.title)??i.title}`',
+      ).trimEnd(),
+      '',
+    ].join('\n'),
+  );
+
+  const result = runPatchScript({ workbenchPath });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Patched VS Code terminal tab title breaks:/);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.equal(nextSource.includes(simpleLineBreakPatchHelper), false);
+  assert.equal(nextSource.includes(oldSplitPatchHelper), false);
+  assert.equal(nextSource.includes(currentPatchHelper), true);
+  assert.equal(
+    nextSource.match(/Codex VS Code terminal tab title breaks patch/g).length,
+    1,
+  );
+  assert.equal(
+    nextSource.match(/__codexVscodeTerminalTabTitleBreaks/g).length,
+    2,
   );
 });
 

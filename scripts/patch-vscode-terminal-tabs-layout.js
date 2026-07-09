@@ -8,14 +8,30 @@ const cssPath =
 
 const patchMarker =
   '/* codex-vscode-terminal-tools: terminal-tabs-two-line-layout. Reapply with patch-vscode-terminal-tabs-layout. */';
+const labelIconPositionRule =
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label:before,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label>.monaco-icon-label-iconpath{position:absolute!important;left:0!important;top:calc(50% - 19px)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;display:block!important;margin:0!important;padding:0!important;opacity:1!important;}';
+const previousLabelIconPositionRule =
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label:before,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label>.monaco-icon-label-iconpath{position:absolute!important;left:0!important;top:calc(50% - 19px)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;display:block!important;margin:0!important;padding:0!important;color:var(--vscode-icon-foreground)!important;opacity:1!important;}';
+const titleCodiconPositionRule =
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label .codicon:first-child{position:absolute!important;left:0!important;top:calc(50% - 19px)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;opacity:1!important;}';
+const defaultTerminalIconFallbackRule =
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label:not([class*="codicon-"]):not(.terminal-uri-icon):before{content:"\\ea85"!important;font-family:codicon!important;background-image:none!important;}';
+const actionIconsRule =
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .actions .action-label.codicon,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-action-bar .action-label.codicon{color:var(--vscode-icon-foreground)!important;opacity:1!important;}';
+const activeActionIconsRule =
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row.selected .terminal-tabs-entry .actions .action-label.codicon,.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row.focused .terminal-tabs-entry .actions .action-label.codicon,.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row.selected .terminal-tabs-entry .monaco-action-bar .action-label.codicon,.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row.focused .terminal-tabs-entry .monaco-action-bar .action-label.codicon{color:var(--vscode-list-activeSelectionForeground,var(--vscode-foreground))!important;}';
 const patchRules = [
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row{height:68px!important;line-height:20px!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry{min-height:68px!important;height:68px!important;align-items:center!important;padding-top:5px!important;padding-bottom:5px!important;padding-left:12px!important;padding-right:10px!important;box-sizing:border-box!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;position:relative!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;padding-left:38px!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-name-container,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-description-container{white-space:normal!important;overflow:hidden!important;text-overflow:clip!important;}',
-  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label .codicon:first-child{position:absolute!important;left:0!important;top:50%!important;transform:translateY(-50%)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;}',
+  labelIconPositionRule,
+  titleCodiconPositionRule,
+  defaultTerminalIconFallbackRule,
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
+  actionIconsRule,
+  activeActionIconsRule,
 ];
 const patchBlock = `${patchMarker}\n${patchRules.join('\n')}\n`;
 const legacy44PatchRules = [
@@ -58,12 +74,16 @@ const legacy68CenteredPatchRules = [
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-name-container,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-description-container{white-space:normal!important;overflow:hidden!important;text-overflow:clip!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
 ];
+const legacy68ForcedLabelIconColorPatchRules = patchRules.map((rule) =>
+  rule === labelIconPositionRule ? previousLabelIconPositionRule : rule,
+);
 const legacyPatchBlocks = [
   `${patchMarker}\n${legacy44PatchRules.join('\n')}\n`,
   `${patchMarker}\n${legacy48PatchRules.join('\n')}\n`,
   `${patchMarker}\n${legacy64PatchRules.join('\n')}\n`,
   `${patchMarker}\n${legacy68TopAlignedPatchRules.join('\n')}\n`,
   `${patchMarker}\n${legacy68CenteredPatchRules.join('\n')}\n`,
+  `${patchMarker}\n${legacy68ForcedLabelIconColorPatchRules.join('\n')}\n`,
 ];
 
 function timestamp() {
@@ -94,6 +114,7 @@ if (source.includes(patchMarker)) {
       legacy64PatchRules,
       legacy68TopAlignedPatchRules,
       legacy68CenteredPatchRules,
+      legacy68ForcedLabelIconColorPatchRules,
     ].some((rules) => rules.every((rule) => source.includes(rule)))
   ) {
     fail('Found an unknown terminal tabs layout patch marker. Re-check workbench CSS before patching.');

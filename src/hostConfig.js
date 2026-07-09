@@ -280,11 +280,17 @@ const TITLEBAR_CENTER_PATCH_RULES = [
 ];
 const TERMINAL_TABS_LAYOUT_PATCH_MARKER =
   'codex-vscode-terminal-tools: terminal-tabs-two-line-layout';
+const TERMINAL_TABS_LAYOUT_FORCED_LABEL_ICON_COLOR_RULE =
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label:before,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label>.monaco-icon-label-iconpath{position:absolute!important;left:0!important;top:calc(50% - 19px)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;display:block!important;margin:0!important;padding:0!important;color:var(--vscode-icon-foreground)!important;opacity:1!important;}';
 const TERMINAL_TABS_LAYOUT_PATCH_RULES = [
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label{height:100%!important;min-height:58px!important;line-height:19px!important;display:flex!important;align-items:center!important;position:relative!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label-container{white-space:normal!important;overflow:visible!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:58px!important;padding-left:38px!important;}',
-  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label .codicon:first-child{position:absolute!important;left:0!important;top:50%!important;transform:translateY(-50%)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label:before,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label>.monaco-icon-label-iconpath{position:absolute!important;left:0!important;top:calc(50% - 19px)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;display:block!important;margin:0!important;padding:0!important;opacity:1!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label .codicon:first-child{position:absolute!important;left:0!important;top:calc(50% - 19px)!important;font-size:24px!important;width:28px!important;height:38px!important;line-height:38px!important;text-align:center!important;opacity:1!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-icon-label:not([class*="codicon-"]):not(.terminal-uri-icon):before{content:"\\ea85"!important;font-family:codicon!important;background-image:none!important;}',
   '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-highlighted-label{white-space:pre-line!important;line-height:19px!important;letter-spacing:0!important;font-kerning:normal!important;overflow:hidden!important;text-overflow:clip!important;overflow-wrap:normal!important;word-break:normal!important;display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:3!important;line-clamp:3!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .actions .action-label.codicon,.monaco-workbench .pane-body.integrated-terminal .tabs-list .terminal-tabs-entry .monaco-action-bar .action-label.codicon{color:var(--vscode-icon-foreground)!important;opacity:1!important;}',
+  '.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row.selected .terminal-tabs-entry .actions .action-label.codicon,.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row.focused .terminal-tabs-entry .actions .action-label.codicon,.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row.selected .terminal-tabs-entry .monaco-action-bar .action-label.codicon,.monaco-workbench .pane-body.integrated-terminal .tabs-list .monaco-list-row.focused .terminal-tabs-entry .monaco-action-bar .action-label.codicon{color:var(--vscode-list-activeSelectionForeground,var(--vscode-foreground))!important;}',
 ];
 const DOCK_ICON_PATCH_MARKER = 'Codex VS Code Dock icon patch';
 
@@ -1137,7 +1143,8 @@ function checkVscodeTerminalTabsLayoutPatch(cssPath) {
   const source = fs.readFileSync(cssPath, 'utf8');
   const ok =
     source.includes(TERMINAL_TABS_LAYOUT_PATCH_MARKER) &&
-    TERMINAL_TABS_LAYOUT_PATCH_RULES.every((rule) => source.includes(rule));
+    TERMINAL_TABS_LAYOUT_PATCH_RULES.every((rule) => source.includes(rule)) &&
+    !source.includes(TERMINAL_TABS_LAYOUT_FORCED_LABEL_ICON_COLOR_RULE);
 
   return {
     ok,
