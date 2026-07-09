@@ -15,6 +15,12 @@ const original =
 const patched =
   'unsplitInstance(e){let t=this.getGroupForInstance(e);if(!t||t.terminalInstances.length<2)return;let o=this.groups.indexOf(t);t.removeInstance(e);let n=this.createGroup(e),r=this.groups.indexOf(n);r!==-1&&o!==-1&&(this.groups.splice(r,1),this.groups.splice(Math.min(o+1,this.groups.length),0,n),this._onDidChangeGroups.fire(),this._onDidChangeInstances.fire()),this.setActiveInstance(e)}';
 
+const originalCreateGroup =
+  'createGroup(e){let t=this._instantiationService.createInstance(qqe,this._container,e);return this.groups.push(t),t.addDisposable(U.forward(t.onPanelOrientationChanged,this._onDidChangePanelOrientation)),t.addDisposable(U.forward(t.onDidDisposeInstance,this._onDidDisposeInstance)),t.addDisposable(U.forward(t.onDidFocusInstance,this._onDidFocusInstance)),t.addDisposable(U.forward(t.onDidChangeInstanceCapability,this._onDidChangeInstanceCapability)),t.addDisposable(U.forward(t.onInstancesChanged,this._onDidChangeInstances)),t.addDisposable(U.forward(t.onDisposed,this._onDidDisposeGroup)),t.addDisposable(t.onDidChangeActiveInstance(o=>{t===this.activeGroup&&this._onDidChangeActiveInstance.fire(o)})),t.terminalInstances.length>0&&this._onDidChangeInstances.fire(),this.instances.length===1&&this.setActiveInstanceByIndex(0),this._onDidChangeGroups.fire(),t}';
+
+const patchedCreateGroup =
+  'createGroup(e){let t=this._instantiationService.createInstance(qqe,this._container,e),o=this.activeGroupIndex;return this.groups.push(t),o!==-1&&this.groups.length>1&&(this.groups.splice(this.groups.length-1,1),this.groups.splice(Math.min(o+1,this.groups.length),0,t)),t.addDisposable(U.forward(t.onPanelOrientationChanged,this._onDidChangePanelOrientation)),t.addDisposable(U.forward(t.onDidDisposeInstance,this._onDidDisposeInstance)),t.addDisposable(U.forward(t.onDidFocusInstance,this._onDidFocusInstance)),t.addDisposable(U.forward(t.onDidChangeInstanceCapability,this._onDidChangeInstanceCapability)),t.addDisposable(U.forward(t.onInstancesChanged,this._onDidChangeInstances)),t.addDisposable(U.forward(t.onDisposed,this._onDidDisposeGroup)),t.addDisposable(t.onDidChangeActiveInstance(n=>{t===this.activeGroup&&this._onDidChangeActiveInstance.fire(n)})),t.terminalInstances.length>0&&this._onDidChangeInstances.fire(),this.instances.length===1&&this.setActiveInstanceByIndex(0),this._onDidChangeGroups.fire(),t}';
+
 const originalChangeColor =
   'Kr({id:"workbench.action.terminal.changeColor",title:Ir.changeColor,precondition:Ra.terminalAvailable,run:(i,e,t)=>Omt(i,t)?.changeColor()})';
 
@@ -339,6 +345,13 @@ const terminalOrderState = getPatchState({
   patchedCount,
   inspectTarget: 'unsplitInstance',
 });
+const terminalDirectCreateOrderState = getReplacementPatchState({
+  source,
+  name: 'terminal direct-create order',
+  sourceMarkers: [originalCreateGroup],
+  patchedMarkers: [patchedCreateGroup],
+  inspectTarget: 'createGroup',
+});
 const terminalColorState = getReplacementPatchState({
   source,
   name: 'terminal color-command',
@@ -398,6 +411,7 @@ const terminalTabsListHeightState = getReplacementPatchState({
 
 const workbenchNeedsPatch =
   terminalOrderState === 'needs-patch' ||
+  terminalDirectCreateOrderState.state === 'needs-patch' ||
   terminalColorState.state === 'needs-patch' ||
   terminalActiveTabColorState.state === 'needs-patch' ||
   terminalTabHighlightState.state !== 'patched' ||
@@ -418,6 +432,13 @@ if (!workbenchNeedsPatch) {
 
   if (terminalOrderState === 'needs-patch') {
     nextSource = nextSource.replace(original, patched);
+  }
+
+  if (terminalDirectCreateOrderState.state === 'needs-patch') {
+    nextSource = nextSource.replace(
+      terminalDirectCreateOrderState.marker,
+      patchedCreateGroup,
+    );
   }
 
   if (terminalColorState.state === 'needs-patch') {

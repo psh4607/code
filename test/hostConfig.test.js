@@ -921,6 +921,7 @@ test('checkWorkbenchPatches requires the IME terminal sendSequence hooks', () =>
     workbenchPath,
     [
       'this.groups.splice(Math.min(o+1,this.groups.length),0,n)',
+      'this.groups.splice(Math.min(o+1,this.groups.length),0,t)',
       'codexTerminal.rememberCwdColor',
       'typeof t=="string"||t===null',
       'codexTerminal.flashActiveTerminalTab',
@@ -952,6 +953,7 @@ test('checkWorkbenchPatches requires the sticky notifications patch', () => {
     workbenchPath,
     [
       'this.groups.splice(Math.min(o+1,this.groups.length),0,n)',
+      'this.groups.splice(Math.min(o+1,this.groups.length),0,t)',
       'codexTerminal.rememberCwdColor',
       'typeof t=="string"||t===null',
       'codexTerminal.flashActiveTerminalTab',
@@ -997,6 +999,7 @@ test('checkWorkbenchPatches requires replaceable notification support', () => {
     workbenchPath,
     [
       'this.groups.splice(Math.min(o+1,this.groups.length),0,n)',
+      'this.groups.splice(Math.min(o+1,this.groups.length),0,t)',
       'codexTerminal.rememberCwdColor',
       'typeof t=="string"||t===null',
       'codexTerminal.flashActiveTerminalTab',

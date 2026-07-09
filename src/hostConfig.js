@@ -223,6 +223,8 @@ const LEGACY_ZSH_BLOCK_RE =
   /# VS Code terminal tab title: show cwd as ~\/\.\.\.\n_vscode_cwd_title\(\) \{\n[\s\S]*?add-zsh-hook chpwd _vscode_cwd_title\n?/;
 
 const TERMINAL_ORDER_MARKER = 'this.groups.splice(Math.min(o+1,this.groups.length),0,n)';
+const TERMINAL_DIRECT_CREATE_ORDER_MARKER =
+  'this.groups.splice(Math.min(o+1,this.groups.length),0,t)';
 const TERMINAL_COLOR_MARKER = 'codexTerminal.rememberCwdColor';
 const TERMINAL_COLOR_ARGUMENT_MARKER = 'typeof t=="string"||t===null';
 const TERMINAL_TAB_HIGHLIGHT_MARKER = 'codexTerminal.flashActiveTerminalTab';
@@ -984,6 +986,7 @@ function checkWorkbenchPatches(workbenchPath) {
 
   for (const [name, marker] of [
     ['terminal order', TERMINAL_ORDER_MARKER],
+    ['terminal direct-create order', TERMINAL_DIRECT_CREATE_ORDER_MARKER],
     ['terminal color remember', TERMINAL_COLOR_MARKER],
     ['terminal color argument', TERMINAL_COLOR_ARGUMENT_MARKER],
     ['terminal tab highlight', TERMINAL_TAB_HIGHLIGHT_MARKER],

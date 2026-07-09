@@ -60,9 +60,9 @@ shutdowns can revive integrated terminal processes and scrollback on the next la
 
 Press `Cmd+T` to create and focus a new integrated terminal using the active terminal's current working directory.
 
-This uses VS Code's split-then-unsplit terminal flow so the new terminal is created adjacent to the active terminal instead of being appended to the end of the terminal list. The cwd inheritance depends on `terminal.integrated.splitCwd` being set to `inherited`.
+This creates the terminal directly with the active terminal's cwd so it stays fast and does not go through VS Code's split-then-unsplit flow.
 
-VS Code normally unsplits a terminal into a new group at the end of the terminal list. This machine patches the local VS Code workbench bundle so unsplit inserts the new terminal group right after the active group:
+VS Code normally creates a new terminal group at the end of the terminal list, and normally unsplits a terminal into a new group at the end as well. This machine patches the local VS Code workbench bundle so both direct terminal creation and unsplit insertion place the new terminal group right after the active group:
 
 ```sh
 npm run patch:vscode-terminal-order

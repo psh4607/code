@@ -154,6 +154,7 @@ using. `Developer: Reload Window` is not enough because those bundles are loaded
 `scripts/patch-vscode-terminal-order.js` owns workbench changes for:
 
 - `workbench.action.terminal.unsplit` group ordering.
+- Direct terminal group creation after the active terminal group.
 - `workbench.action.terminal.changeColor` and `changeColorActiveTab` manual color reporting.
 - `changeColorActiveTab` accepting a color argument from this extension.
 - Terminal empty-area focus behavior.

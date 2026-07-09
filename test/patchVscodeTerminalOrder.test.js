@@ -28,6 +28,12 @@ const originalUnsplit =
 const patchedUnsplit =
   'unsplitInstance(e){let t=this.getGroupForInstance(e);if(!t||t.terminalInstances.length<2)return;let o=this.groups.indexOf(t);t.removeInstance(e);let n=this.createGroup(e),r=this.groups.indexOf(n);r!==-1&&o!==-1&&(this.groups.splice(r,1),this.groups.splice(Math.min(o+1,this.groups.length),0,n),this._onDidChangeGroups.fire(),this._onDidChangeInstances.fire()),this.setActiveInstance(e)}';
 
+const originalCreateGroup =
+  'createGroup(e){let t=this._instantiationService.createInstance(qqe,this._container,e);return this.groups.push(t),t.addDisposable(U.forward(t.onPanelOrientationChanged,this._onDidChangePanelOrientation)),t.addDisposable(U.forward(t.onDidDisposeInstance,this._onDidDisposeInstance)),t.addDisposable(U.forward(t.onDidFocusInstance,this._onDidFocusInstance)),t.addDisposable(U.forward(t.onDidChangeInstanceCapability,this._onDidChangeInstanceCapability)),t.addDisposable(U.forward(t.onInstancesChanged,this._onDidChangeInstances)),t.addDisposable(U.forward(t.onDisposed,this._onDidDisposeGroup)),t.addDisposable(t.onDidChangeActiveInstance(o=>{t===this.activeGroup&&this._onDidChangeActiveInstance.fire(o)})),t.terminalInstances.length>0&&this._onDidChangeInstances.fire(),this.instances.length===1&&this.setActiveInstanceByIndex(0),this._onDidChangeGroups.fire(),t}';
+
+const patchedCreateGroup =
+  'createGroup(e){let t=this._instantiationService.createInstance(qqe,this._container,e),o=this.activeGroupIndex;return this.groups.push(t),o!==-1&&this.groups.length>1&&(this.groups.splice(this.groups.length-1,1),this.groups.splice(Math.min(o+1,this.groups.length),0,t)),t.addDisposable(U.forward(t.onPanelOrientationChanged,this._onDidChangePanelOrientation)),t.addDisposable(U.forward(t.onDidDisposeInstance,this._onDidDisposeInstance)),t.addDisposable(U.forward(t.onDidFocusInstance,this._onDidFocusInstance)),t.addDisposable(U.forward(t.onDidChangeInstanceCapability,this._onDidChangeInstanceCapability)),t.addDisposable(U.forward(t.onInstancesChanged,this._onDidChangeInstances)),t.addDisposable(U.forward(t.onDisposed,this._onDidDisposeGroup)),t.addDisposable(t.onDidChangeActiveInstance(n=>{t===this.activeGroup&&this._onDidChangeActiveInstance.fire(n)})),t.terminalInstances.length>0&&this._onDidChangeInstances.fire(),this.instances.length===1&&this.setActiveInstanceByIndex(0),this._onDidChangeGroups.fire(),t}';
+
 const originalChangeColor =
   'Kr({id:"workbench.action.terminal.changeColor",title:Ir.changeColor,precondition:Ra.terminalAvailable,run:(i,e,t)=>Omt(i,t)?.changeColor()})';
 
@@ -98,13 +104,26 @@ function patchedTabsEmptyAreaMarkers() {
   ];
 }
 
+function terminalGroupsFixture({
+  unsplitMarker = patchedUnsplit,
+  createGroupMarker = patchedCreateGroup,
+} = {}) {
+  return [
+    'class TerminalGroups {',
+    createGroupMarker,
+    unsplitMarker,
+    '}',
+  ];
+}
+
 test('patch script applies terminal order and programmatic active-tab color patches', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    originalUnsplit,
-    '}',
+    ...terminalGroupsFixture({
+      unsplitMarker: originalUnsplit,
+      createGroupMarker: originalCreateGroup,
+    }),
     'function Kr(){}',
     'const Ir={changeColor:""};',
     'const Ra={terminalAvailable_and_singularSelection:true};',
@@ -122,6 +141,7 @@ test('patch script applies terminal order and programmatic active-tab color patc
   const nextSource = fs.readFileSync(workbenchPath, 'utf8');
   assert.match(nextSource, /Patched by codex-vscode-terminal-tools/);
   assert.equal(nextSource.includes(patchedUnsplit), true);
+  assert.equal(nextSource.includes(patchedCreateGroup), true);
   assert.equal(nextSource.includes(patchedChangeColor), true);
   assert.equal(nextSource.includes(patchedChangeColorActiveTab), true);
   assert.equal(nextSource.includes('for(let s of i.service.activeInstance?[i.service.activeInstance]:[])'), true);
@@ -134,9 +154,7 @@ test('patch script can add color patch when terminal order patch is already appl
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const Ir={changeColor:""};',
     'const Ra={terminalAvailable_and_singularSelection:true};',
@@ -161,9 +179,10 @@ test('patch script supports VS Code 1.127 terminal color markers', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    originalUnsplit,
-    '}',
+    ...terminalGroupsFixture({
+      unsplitMarker: originalUnsplit,
+      createGroupMarker: originalCreateGroup,
+    }),
     'function Kr(){}',
     'const wr={changeColor:""};',
     'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
@@ -180,6 +199,7 @@ test('patch script supports VS Code 1.127 terminal color markers', () => {
   assert.equal(result.status, 0, result.stderr);
   const nextSource = fs.readFileSync(workbenchPath, 'utf8');
   assert.equal(nextSource.includes(patchedUnsplit), true);
+  assert.equal(nextSource.includes(patchedCreateGroup), true);
   assert.equal(nextSource.includes(vscode127PatchedChangeColor), true);
   assert.equal(nextSource.includes(vscode127PatchedChangeColorActiveTab), true);
   assert.equal(nextSource.includes('title:Ir.changeColor'), false);
@@ -192,9 +212,7 @@ test('patch script adds terminal tab highlight command to already patched workbe
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const Ir={changeColor:""};',
     'const Ra={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
@@ -219,9 +237,7 @@ test('patch script supports VS Code 1.127 terminal tab empty-area focus markers'
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const wr={changeColor:""};',
     'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
@@ -251,9 +267,7 @@ test('patch script supports VS Code 1.127 multi-line terminal tab row height mar
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const wr={changeColor:""};',
     'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
@@ -281,9 +295,7 @@ test('patch script upgrades the previous 44px terminal tab row height', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const wr={changeColor:""};',
     'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
@@ -312,9 +324,7 @@ test('patch script upgrades the previous 48px terminal tab row height', () => {
   const legacy48 =
     'super("TerminalTabsList",e,{getHeight:()=>48,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:48,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const wr={changeColor:""};',
     'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
@@ -343,9 +353,7 @@ test('patch script upgrades the previous 64px terminal tab row height', () => {
   const legacy64 =
     'super("TerminalTabsList",e,{getHeight:()=>64,getTemplateId:()=>"terminal.tabs"},[l.createInstance(dft,e,l.createInstance(jc,mO),()=>this.getSelectedElements(),{getHasText:()=>this.hasText,getHasActionBar:()=>this.hasActionBar})],{horizontalScrolling:!1,supportDynamicHeights:!1,selectionNavigation:!0,identityProvider:{getId:b=>b?.instanceId},accessibilityProvider:l.createInstance(uft),smoothScrolling:n.getValue("workbench.list.smoothScrolling"),multipleSelectionSupport:!0,paddingBottom:64,dnd:l.createInstance(pft),openOnSingleClick:!0},t,o,n,l)';
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const wr={changeColor:""};',
     'const Aa={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
@@ -372,9 +380,7 @@ test('patch script upgrades the previous programmatic color patch', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const Ir={changeColor:""};',
     'const Ra={terminalAvailable_and_singularSelection:true};',
@@ -399,9 +405,7 @@ test('patch script upgrades selected-tab fallback color patch to active-terminal
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const Ir={changeColor:""};',
     'const Ra={terminalAvailable_and_singularSelection:true};',
@@ -426,9 +430,7 @@ test('patch script records manual colors from the generic color command', () => 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-patch-test-'));
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const Ir={changeColor:""};',
     'const Ra={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
@@ -453,9 +455,7 @@ test('patch script disables Claude Code editor title open buttons', () => {
   const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
   const claudePackagePath = path.join(tmpDir, 'claude-package.json');
   const source = [
-    'class TerminalGroups {',
-    patchedUnsplit,
-    '}',
+    ...terminalGroupsFixture(),
     'function Kr(){}',
     'const Ir={changeColor:""};',
     'const Ra={terminalAvailable:true,terminalAvailable_and_singularSelection:true};',
