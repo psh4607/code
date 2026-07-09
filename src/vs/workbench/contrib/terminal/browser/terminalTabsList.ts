@@ -69,6 +69,28 @@ export const enum TerminalTabsListSizes {
 	MaximumWidth = 500
 }
 
+const terminalActivityMarker = /^[\u2800-\u28ff]$/u;
+const terminalActivityMarkerWithTitle = /^([\u2800-\u28ff])\s+(.+)$/u;
+
+export function formatTerminalTabTitle(title: string): string {
+	if (!title.includes('|')) {
+		return title;
+	}
+
+	const parts = title.split('|').map(part => part.trim()).filter(Boolean);
+	const firstPart = parts[0];
+	const secondPart = parts[1];
+
+	if (parts.length > 1 && firstPart && secondPart && terminalActivityMarker.test(firstPart)) {
+		parts[1] = `${firstPart} ${secondPart}`;
+		parts.shift();
+	} else if (firstPart) {
+		parts[0] = firstPart.replace(terminalActivityMarkerWithTitle, '$1 $2');
+	}
+
+	return parts.map(part => part.replace(/ /g, '\u00a0')).join('\n');
+}
+
 export class TerminalTabList extends WorkbenchList<ITerminalInstance> {
 	private _decorationsProvider: TabDecorationsProvider | undefined;
 	private _terminalTabsSingleSelectedContextKey: IContextKey<boolean>;
@@ -386,7 +408,7 @@ class TerminalTabsRenderer implements IListRenderer<ITerminalInstance, ITerminal
 			// Only add the title if the icon is set, this prevents the title jumping around for
 			// example when launching with a ShellLaunchConfig.name and no icon
 			if (instance.icon) {
-				label += `$(${iconId}) ${instance.title}`;
+				label += `$(${iconId}) ${formatTerminalTabTitle(instance.title)}`;
 			}
 		}
 
