@@ -167,6 +167,7 @@
     "apply": "node scripts/apply-host-config.js",
     "build:macos-notification-bridge": "node scripts/build-macos-notification-bridge.js",
     "doctor": "node scripts/doctor.js",
+    "ensure:codesign-identity": "node scripts/ensure-local-codesign-identity.js",
     "ensure:code-app": "node scripts/ensure-managed-code-app.js",
     "patch": "node scripts/patch-vscode-all-targets.js",
     "patch:managed-code-sign": "node scripts/sign-managed-code-app.js",

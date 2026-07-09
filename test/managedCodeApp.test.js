@@ -5,6 +5,10 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  CODE_SIGN_IDENTITY_ENV,
+  DEFAULT_CODE_SIGN_IDENTITY,
+} = require('../src/codeSignIdentity');
+const {
   CODEX_MANAGED_APP_MARKER_RELATIVE_PATH,
   MANAGED_CODE_SIGN_PRESERVE_METADATA,
   MANAGED_BUNDLE_DISPLAY_NAME,
@@ -262,7 +266,7 @@ test('ensureManagedCodeApp is idempotent when marker and identity are current', 
   ]);
 });
 
-test('signManagedCodeApp removes Finder custom icon detritus and ad-hoc signs', () => {
+test('signManagedCodeApp removes Finder custom icon detritus and falls back to ad-hoc signing', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-managed-code-app-test-'));
   const managedAppPath = path.join(tmpDir, 'Code.app');
   const paths = createManagedCodeAppPaths({
@@ -283,6 +287,9 @@ test('signManagedCodeApp removes Finder custom icon detritus and ad-hoc signs', 
     paths,
     execFileSync: (command, args) => {
       execCalls.push([command, args]);
+      if (command === '/usr/bin/security') {
+        return '     0 valid identities found\n';
+      }
       return Buffer.from('');
     },
     spawnSync: (command, args) => {
@@ -292,8 +299,13 @@ test('signManagedCodeApp removes Finder custom icon detritus and ad-hoc signs', 
   });
 
   assert.equal(result.changed, true);
+  assert.equal(result.reason, 'managed app signed (ad-hoc)');
   assert.equal(fs.existsSync(path.join(managedAppPath, 'Icon\r')), false);
   assert.deepEqual(execCalls, [
+    [
+      '/usr/bin/security',
+      ['find-identity', '-v', '-p', 'codesigning'],
+    ],
     ['/usr/bin/xattr', ['-d', 'com.apple.FinderInfo', managedAppPath]],
     ['/usr/bin/xattr', ['-dr', 'com.apple.quarantine', managedAppPath]],
     ['/usr/bin/xattr', ['-dr', 'com.apple.provenance', managedAppPath]],
@@ -312,6 +324,80 @@ test('signManagedCodeApp removes Finder custom icon detritus and ad-hoc signs', 
     ['/usr/bin/xattr', ['-dr', 'com.apple.provenance', managedAppPath]],
   ]);
   assert.equal(spawnCalls.length, 1);
+});
+
+test('signManagedCodeApp uses stable local code signing identity when available', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-managed-code-app-test-'));
+  const managedAppPath = path.join(tmpDir, 'Code.app');
+  const paths = createManagedCodeAppPaths({
+    sourceAppPath: path.join(tmpDir, 'Visual Studio Code.app'),
+    managedAppPath,
+  });
+  makeApp(managedAppPath, {
+    bundleId: MANAGED_BUNDLE_ID,
+    displayName: MANAGED_BUNDLE_DISPLAY_NAME,
+    name: MANAGED_BUNDLE_DISPLAY_NAME,
+    helperBundleId: MANAGED_HELPER_BUNDLE_ID,
+  });
+  const identityHash = '0123456789ABCDEF0123456789ABCDEF01234567';
+  const execCalls = [];
+
+  const result = signManagedCodeApp({
+    paths,
+    execFileSync: (command, args) => {
+      execCalls.push([command, args]);
+      if (command === '/usr/bin/security') {
+        return `  1) ${identityHash} "${DEFAULT_CODE_SIGN_IDENTITY}"\n     1 valid identities found\n`;
+      }
+      return Buffer.from('');
+    },
+    spawnSync: () => ({ status: 0 }),
+  });
+
+  assert.equal(result.reason, 'managed app signed (certificate)');
+  assert.deepEqual(execCalls.find(([command]) => command === '/usr/bin/codesign'), [
+    '/usr/bin/codesign',
+    [
+      '--force',
+      '--deep',
+      '--sign',
+      identityHash,
+      `--preserve-metadata=${MANAGED_CODE_SIGN_PRESERVE_METADATA}`,
+      managedAppPath,
+    ],
+  ]);
+});
+
+test('signManagedCodeApp fails when explicit code signing identity is missing', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-managed-code-app-test-'));
+  const managedAppPath = path.join(tmpDir, 'Code.app');
+  const paths = createManagedCodeAppPaths({
+    sourceAppPath: path.join(tmpDir, 'Visual Studio Code.app'),
+    managedAppPath,
+  });
+  makeApp(managedAppPath, {
+    bundleId: MANAGED_BUNDLE_ID,
+    displayName: MANAGED_BUNDLE_DISPLAY_NAME,
+    name: MANAGED_BUNDLE_DISPLAY_NAME,
+    helperBundleId: MANAGED_HELPER_BUNDLE_ID,
+  });
+
+  assert.throws(
+    () =>
+      signManagedCodeApp({
+        paths,
+        env: {
+          [CODE_SIGN_IDENTITY_ENV]: 'Missing Identity',
+        },
+        execFileSync: (command) => {
+          if (command === '/usr/bin/security') {
+            return '     0 valid identities found\n';
+          }
+          return Buffer.from('');
+        },
+      }),
+    /Configured code signing identity not found: Missing Identity/,
+  );
 });
 
 test('checkManagedCodeApp reports missing and current managed app states', () => {

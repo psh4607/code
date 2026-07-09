@@ -1,6 +1,7 @@
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { CODE_SIGN_KEYCHAIN_ENV, resolveCodeSignIdentity } = require('./codeSignIdentity');
 
 const DEFAULT_APPLICATIONS_DIR = '/Applications';
 const SOURCE_APP_NAME = 'Visual Studio Code.app';
@@ -192,29 +193,40 @@ function signManagedCodeApp({
   paths = createManagedCodeAppPaths(),
   execFileSync = childProcess.execFileSync,
   spawnSync = childProcess.spawnSync,
+  env = process.env,
 } = {}) {
   if (!fs.existsSync(paths.managedAppPath)) {
     throw new Error(`Managed Code.app missing: ${paths.managedAppPath}`);
   }
 
+  const codeSignKeychainPath = env[CODE_SIGN_KEYCHAIN_ENV]?.trim();
+  const signing = resolveCodeSignIdentity({
+    env,
+    execFileSync,
+    keychainPath: codeSignKeychainPath || undefined,
+  });
+  const codesignArgs = ['--force', '--deep'];
+  if (codeSignKeychainPath) {
+    codesignArgs.push('--keychain', codeSignKeychainPath);
+  }
+  codesignArgs.push(
+    '--sign',
+    signing.identity,
+    `--preserve-metadata=${MANAGED_CODE_SIGN_PRESERVE_METADATA}`,
+    paths.managedAppPath,
+  );
+
   removeCodeSigningDetritus({ managedAppPath: paths.managedAppPath, execFileSync });
   clearGatekeeperAttributes({ managedAppPath: paths.managedAppPath, execFileSync });
   execFileSync(
     '/usr/bin/codesign',
-    [
-      '--force',
-      '--deep',
-      '--sign',
-      '-',
-      `--preserve-metadata=${MANAGED_CODE_SIGN_PRESERVE_METADATA}`,
-      paths.managedAppPath,
-    ],
+    codesignArgs,
     { stdio: 'inherit' },
   );
   clearGatekeeperAttributes({ managedAppPath: paths.managedAppPath, execFileSync });
   refreshLaunchServices({ managedAppPath: paths.managedAppPath, spawnSync });
 
-  return { changed: true, reason: 'managed app signed' };
+  return { changed: true, reason: `managed app signed (${signing.kind})` };
 }
 
 function ensureManagedCodeApp({

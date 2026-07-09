@@ -23,9 +23,10 @@ Code user data shared with the existing `Code` profile; do not split
 `/Users/seongho/Library/Application Support/Code/User` or `~/.vscode/extensions` unless explicitly
 asked.
 Keep the managed app on the separate local bundle id `com.seongho.Code`, patch the helper bundle ids
-to `com.seongho.Code.helper`, and ad-hoc sign both VS Code app bundles after every bundle patch.
-Changing only the root bundle id without re-signing causes macOS launchd to reject the app before
-startup.
+to `com.seongho.Code.helper`, and sign both VS Code app bundles after every bundle patch. Prefer the
+stable local `Seongho Local Code Signing` identity created by `npm run ensure:codesign-identity`;
+fallback ad-hoc signing is only for machines where that identity has not been installed. Changing
+only the root bundle id without re-signing causes macOS launchd to reject the app before startup.
 
 Do not create a second umbrella repo for these local patches. Extend this
 project and keep host writes repeatable.
@@ -35,9 +36,9 @@ project and keep host writes repeatable.
 `npm run apply` owns these host surfaces:
 
 - The managed `/Applications/Code.app` bundle copied from `/Applications/Visual Studio Code.app`.
-- The managed `Code.app` bundle identity and final ad-hoc signature.
+- The managed `Code.app` bundle identity and final local signature.
 - The upstream `/Applications/Visual Studio Code.app` workbench/CSS/icon/Dock patches and final
-  ad-hoc signature.
+  local signature.
 - VS Code user settings in `/Users/seongho/Library/Application Support/Code/User/settings.json`.
 - VS Code user keybindings in `/Users/seongho/Library/Application Support/Code/User/keybindings.json`.
 - The `.zshrc` cwd-title hook used by VS Code terminal tab titles.
@@ -56,8 +57,8 @@ The important source files are:
 - `scripts/apply-host-config.js`: ensure managed `Code.app`, normalize host files, run `npm run patch`, then verify.
 - `scripts/patch-vscode-all-targets.js`: apply every local bundle/CSS/icon patch to both app
   bundles, then sign each target.
-- `scripts/sign-vscode-app.js`: remove signing-incompatible Finder custom icon metadata and ad-hoc
-  sign the requested VS Code app bundle.
+- `scripts/sign-vscode-app.js`: remove signing-incompatible Finder custom icon metadata and sign the
+  requested VS Code app bundle.
 - `scripts/doctor.js`: read-only host drift check.
 - `scripts/patch-vscode-*.js`: app bundle, CSS, icon, Dock icon, and IME patches.
 - `src/*`: extension behavior for terminal creation, paste, rename, detached sessions,
@@ -132,7 +133,7 @@ using. `Developer: Reload Window` is not enough because those bundles are loaded
 - Keep `/Applications/Visual Studio Code.app` as the refresh source for `Code.app`, but apply local
   bundle patches to both `/Applications/Code.app` and `/Applications/Visual Studio Code.app`.
 - Do not re-enable Finder custom app icons by default. The `Icon\r` resource fork and FinderInfo
-  metadata prevent ad-hoc signing and can make macOS report the patched app as damaged.
+  metadata prevent signing and can make macOS report the patched app as damaged.
 - Keep `update.mode` set to `none` in `/Users/seongho/Library/Application Support/Code/User/settings.json` unless the user explicitly asks to restore automatic updates.
 - Keep VS Code excluded from Homebrew upgrades with `brew pin --cask visual-studio-code` unless the user explicitly asks to restore automatic upgrades. `update.mode: none` and the Homebrew pin cover different update paths.
 - Do not hand-edit host files as a one-off fix when the state should be durable. Put the desired state in `src/hostConfig.js` or a patch script, then use `npm run apply`.

@@ -29,6 +29,12 @@ or bundle patches:
 npm run ensure:code-app
 ```
 
+Create the local code-signing certificate used by the patch sequence:
+
+```sh
+npm run ensure:codesign-identity
+```
+
 `npm run apply` manages:
 
 - The managed `/Applications/Code.app` bundle, copied from `/Applications/Visual Studio Code.app`
@@ -49,8 +55,12 @@ npm run ensure:code-app
 The managed app intentionally shares the existing VS Code user data and extensions:
 `/Users/seongho/Library/Application Support/Code/User` and `~/.vscode/extensions`.
 It uses the separate local bundle id `com.seongho.Code`. Because both app bundles are locally
-patched, the patch sequence finishes by ad-hoc signing `/Applications/Code.app` and
-`/Applications/Visual Studio Code.app` so macOS does not treat the changed bundles as damaged.
+patched, the patch sequence finishes by signing `/Applications/Code.app` and
+`/Applications/Visual Studio Code.app` so macOS does not treat the changed bundles as damaged. The
+default signing identity is `Seongho Local Code Signing`; run `npm run ensure:codesign-identity` to
+create it in the login keychain. If that identity is missing, signing falls back to ad-hoc. Set
+`CODEX_VSCODE_CODESIGN_IDENTITY=-` to force ad-hoc signing, or set it to another identity name/hash
+to require that identity.
 
 The managed terminal settings keep VS Code's persistent terminal sessions enabled and set
 `terminal.integrated.persistentSessionReviveProcess` to `onExitAndWindowClose`, so normal VS Code
@@ -149,8 +159,8 @@ patch-vscode-terminal-order
 Run it again after a VS Code update. The patch backs up the current `Code.icns` inside each target
 app before overwriting it. The patch does not apply a Finder custom icon by
 default because that writes resource-fork/FinderInfo metadata that prevents patched apps from
-being ad-hoc signed. For the running Dock tile, the full patch command patches each Electron main
-bundle so startup calls `app.dock.setIcon(...)` with the managed PNG:
+being signed. For the running Dock tile, the full patch command patches each Electron main bundle so
+startup calls `app.dock.setIcon(...)` with the managed PNG:
 
 ```sh
 npm run patch:vscode-dock-icon
