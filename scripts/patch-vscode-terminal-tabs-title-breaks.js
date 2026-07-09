@@ -9,8 +9,9 @@ const workbenchPath =
 const patchMarker =
   '/* Codex VS Code terminal tab title breaks patch. Reapply with patch-vscode-terminal-tabs-title-breaks. */';
 const patchHelper =
-  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d=/^[\\u2800-\\u28ff]$/u,e=/^[\\u2800-\\u28ff]\\s+(.+)$/u;if(b.length>1&&d.test(b[0]))b.shift();else b[0]&&(b[0]=b[0].replace(e,"$1"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});';
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d=/^[\\u2800-\\u28ff]$/u,e=/^([\\u2800-\\u28ff])\\s+(.+)$/u;if(b.length>1&&d.test(b[0]))b[1]=b[0]+" "+b[1],b.shift();else b[0]&&(b[0]=b[0].replace(e,"$1 $2"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});';
 const legacyPatchHelpers = [
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d=/^[\\u2800-\\u28ff]$/u,e=/^[\\u2800-\\u28ff]\\s+(.+)$/u;if(b.length>1&&d.test(b[0]))b.shift();else b[0]&&(b[0]=b[0].replace(e,"$1"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});',
   'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d="$(loading~spin)",e=/^[\\u2800-\\u28ff]$/u,f=/^[\\u2800-\\u28ff]\\s+(.+)$/u;if(b.length>1&&e.test(b[0]))b[1]=d+" "+b[1],b.shift();else b[0]&&(b[0]=b[0].replace(f,d+" $1"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});',
   'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.split("|").map(b=>b.trim().replace(/ /g,"\\u00a0")).filter(Boolean).join("\\n"):a);',
   'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.replace(/ /g,"\\u00a0").replace(/\\|/g,"|\\u200b"):a);',

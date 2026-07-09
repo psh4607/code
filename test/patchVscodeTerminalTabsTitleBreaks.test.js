@@ -45,6 +45,8 @@ const vscode127TerminalTabsRenderer = [
 ].join('\n');
 
 const currentPatchHelper =
+  'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d=/^[\\u2800-\\u28ff]$/u,e=/^([\\u2800-\\u28ff])\\s+(.+)$/u;if(b.length>1&&d.test(b[0]))b[1]=b[0]+" "+b[1],b.shift();else b[0]&&(b[0]=b[0].replace(e,"$1 $2"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});';
+const strippedActivityPatchHelper =
   'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d=/^[\\u2800-\\u28ff]$/u,e=/^[\\u2800-\\u28ff]\\s+(.+)$/u;if(b.length>1&&d.test(b[0]))b.shift();else b[0]&&(b[0]=b[0].replace(e,"$1"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});';
 const loadingSpinPatchHelper =
   'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>{if(typeof a!="string"||!a.includes("|"))return a;let b=a.split("|").map(c=>c.trim()).filter(Boolean),d="$(loading~spin)",e=/^[\\u2800-\\u28ff]$/u,f=/^[\\u2800-\\u28ff]\\s+(.+)$/u;if(b.length>1&&e.test(b[0]))b[1]=d+" "+b[1],b.shift();else b[0]&&(b[0]=b[0].replace(f,d+" $1"));return b.map(c=>c.replace(/ /g,"\\u00a0")).join("\\n")});';
@@ -53,14 +55,14 @@ const oldSplitPatchHelper =
 const simpleLineBreakPatchHelper =
   'globalThis.__codexVscodeTerminalTabTitleBreaks??=(a=>typeof a=="string"&&a.includes("|")?a.replace(/\\|/g,"\\n"):a);';
 
-test('patch helper strips leading terminal progress markers without a loading icon', () => {
+test('patch helper preserves leading terminal progress markers without a loading icon', () => {
   assert.equal(
     formatTerminalTitle('\u280b | codex-vscode-terminal... | 019f45c0-b7bb'),
-    'codex-vscode-terminal...\n019f45c0-b7bb',
+    '\u280b\u00a0codex-vscode-terminal...\n019f45c0-b7bb',
   );
   assert.equal(
     formatTerminalTitle('\u280b codex-vscode-terminal... | 019f45c0-b7bb'),
-    'codex-vscode-terminal...\n019f45c0-b7bb',
+    '\u280b\u00a0codex-vscode-terminal...\n019f45c0-b7bb',
   );
 });
 
@@ -78,7 +80,7 @@ test('patch script formats terminal tab titles with pipe line breaks', () => {
   assert.match(nextSource, /__codexVscodeTerminalTabTitleBreaks/);
   assert.equal(nextSource.includes('$(loading~spin)'), false);
   assert.equal(nextSource.includes('split("|").map(c=>c.trim())'), true);
-  assert.equal(nextSource.includes('replace(e,"$1")'), true);
+  assert.equal(nextSource.includes('b[1]=b[0]+" "+b[1]'), true);
   assert.equal(nextSource.includes('join("\\n")'), true);
   assert.equal(nextSource.includes('u+=`$(${l}) ${i.title}`'), false);
   assert.equal(
@@ -152,6 +154,35 @@ test('patch script upgrades the previous pipe breakpoint helper', () => {
   assert.match(result.stdout, /Patched VS Code terminal tab title breaks:/);
   const nextSource = fs.readFileSync(workbenchPath, 'utf8');
   assert.equal(nextSource.includes(legacyHelper), false);
+  assert.equal(nextSource.includes(currentPatchHelper), true);
+  assert.equal(
+    nextSource.match(/Codex VS Code terminal tab title breaks patch/g).length,
+    1,
+  );
+});
+
+test('patch script upgrades the activity-stripping helper', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-terminal-title-breaks-test-'));
+  const workbenchPath = path.join(tmpDir, 'workbench.desktop.main.js');
+  fs.writeFileSync(
+    workbenchPath,
+    [
+      '/* Codex VS Code terminal tab title breaks patch. Reapply with patch-vscode-terminal-tabs-title-breaks. */',
+      strippedActivityPatchHelper,
+      terminalTabsRenderer.replace(
+        'u+=`$(${l}) ${i.title}`',
+        'u+=`$(${l}) ${globalThis.__codexVscodeTerminalTabTitleBreaks?.(i.title)??i.title}`',
+      ).trimEnd(),
+      '',
+    ].join('\n'),
+  );
+
+  const result = runPatchScript({ workbenchPath });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Patched VS Code terminal tab title breaks:/);
+  const nextSource = fs.readFileSync(workbenchPath, 'utf8');
+  assert.equal(nextSource.includes(strippedActivityPatchHelper), false);
   assert.equal(nextSource.includes(currentPatchHelper), true);
   assert.equal(
     nextSource.match(/Codex VS Code terminal tab title breaks patch/g).length,
