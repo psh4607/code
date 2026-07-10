@@ -71,11 +71,11 @@ function assertExpectedApp(appPath: string): void {
 	}
 
 	const bundleIdentifier = readPlistValue(appPath, 'CFBundleIdentifier');
-	const bundleName = readPlistValue(appPath, 'CFBundleName');
-	if (bundleIdentifier !== product.darwinBundleIdentifier || bundleName !== product.nameLong) {
+	const bundleDisplayName = readPlistValue(appPath, 'CFBundleDisplayName');
+	if (bundleIdentifier !== product.darwinBundleIdentifier || bundleDisplayName !== product.nameLong) {
 		throw new Error(
 			`Refusing to manage unexpected app at ${appPath}: ` +
-			`${bundleName} (${bundleIdentifier})`
+			`${bundleDisplayName} (${bundleIdentifier})`
 		);
 	}
 }
