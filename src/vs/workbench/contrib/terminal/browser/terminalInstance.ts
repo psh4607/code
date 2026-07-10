@@ -76,6 +76,7 @@ import { getUriLabelForShell, getShellIntegrationTimeout, getWorkspaceForTermina
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IHistoryService } from '../../../services/history/common/history.js';
+import { terminalImeGuard } from '../../../services/keybinding/browser/terminalImeGuard.js';
 import { isHorizontal, IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
@@ -1133,6 +1134,10 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		this._setAriaLabel(xterm.raw, this._instanceId, this._title);
 
 		xterm.raw.attachCustomKeyEventHandler((event: KeyboardEvent): boolean => {
+			if (terminalImeGuard.suppressTerminalKey(event, () => this.sendText('\x1B\r', false))) {
+				return false;
+			}
+
 			// Disable all input if the terminal is exiting
 			if (this._isExiting) {
 				return false;

@@ -57,6 +57,7 @@ import { IUserKeybindingItem, KeybindingIO, OutputBuilder } from '../common/keyb
 import { IKeyboard, INavigatorWithKeyboard } from './navigatorKeyboard.js';
 import { getAllUnboundCommands } from './unboundCommands.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
+import { terminalImeGuard } from './terminalImeGuard.js';
 
 function isValidContributedKeyBinding(keyBinding: ContributedKeyBinding, rejects: string[]): boolean {
 	if (!keyBinding) {
@@ -273,6 +274,7 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 
 	private _registerKeyListeners(window: Window): IDisposable {
 		const disposables = new DisposableStore();
+		disposables.add(terminalImeGuard.install(window));
 
 		// for standard keybindings
 		disposables.add(dom.addDisposableListener(window, dom.EventType.KEY_DOWN, (e: KeyboardEvent) => {
@@ -283,7 +285,8 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 			const keyEvent = new StandardKeyboardEvent(e);
 			this._log(`/ Received  keydown event - ${printKeyboardEvent(e)}`);
 			this._log(`| Converted keydown event - ${printStandardKeyboardEvent(keyEvent)}`);
-			const shouldPreventDefault = this._dispatch(keyEvent, keyEvent.target);
+			const dispatch = () => this._dispatch(keyEvent, keyEvent.target);
+			const shouldPreventDefault = terminalImeGuard.deferKeybinding(e, dispatch) ?? dispatch();
 			if (shouldPreventDefault) {
 				keyEvent.preventDefault();
 			}

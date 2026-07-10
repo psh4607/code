@@ -19,6 +19,7 @@ import { GeneralShellType, TerminalSettingId, WindowsShellType } from '../../../
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { IConfigurationResolverService } from '../../../../services/configurationResolver/common/configurationResolver.js';
 import { IHistoryService } from '../../../../services/history/common/history.js';
+import { terminalImeGuard } from '../../../../services/keybinding/browser/terminalImeGuard.js';
 import { ITerminalService } from '../../../terminal/browser/terminal.js';
 import { registerTerminalAction } from '../../../terminal/browser/terminalActions.js';
 import { TerminalCommandId } from '../../../terminal/common/terminal.js';
@@ -76,7 +77,9 @@ export const terminalSendSequenceCommand = async (accessor: ServicesAccessor, ar
 		const activeWorkspaceRootUri = historyService.getLastActiveWorkspaceRoot(instance.hasRemoteAuthority ? Schemas.vscodeRemote : Schemas.file);
 		const lastActiveWorkspaceRoot = activeWorkspaceRootUri ? workspaceContextService.getWorkspaceFolder(activeWorkspaceRootUri) ?? undefined : undefined;
 		const resolvedText = await configurationResolverService.resolveAsync(lastActiveWorkspaceRoot, text);
-		instance.sendText(resolvedText, false);
+		if (!terminalImeGuard.queueTerminalSequence(resolvedText, () => instance.sendText(resolvedText, false))) {
+			instance.sendText(resolvedText, false);
+		}
 	}
 };
 
