@@ -23,6 +23,38 @@ const root = path.resolve(__dirname, '../..');
 const product = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8')) as ProductConfiguration;
 const preferredSigningIdentity = 'Seongho Local Code Signing';
 const command = process.argv[2];
+const layoutSeedVersion = 1;
+const layoutStateKeys = [
+	'peekViewLayout',
+	'terminal.hidden',
+	'views.cachedViewPositions',
+	'workbench.activity.pinnedViewlets2',
+	'workbench.activity.placeholderViewlets',
+	'workbench.activity.showAccounts',
+	'workbench.activityBar.hidden',
+	'workbench.activityBar.location',
+	'workbench.auxiliaryBar.empty',
+	'workbench.auxiliaryBar.lastNonMaximizedSize',
+	'workbench.auxiliaryBar.size',
+	'workbench.auxiliarybar.pinnedPanels',
+	'workbench.auxiliarybar.placeholderPanels',
+	'workbench.panel.alignment',
+	'workbench.panel.lastNonMaximizedHeight',
+	'workbench.panel.lastNonMaximizedWidth',
+	'workbench.panel.pinnedPanels',
+	'workbench.panel.placeholderPanels',
+	'workbench.panel.size',
+	'workbench.sideBar.position',
+	'workbench.sideBar.size',
+	'workbench.statusBar.hidden',
+	'workbench.statusbar.hidden',
+];
+const layoutStateGlobs = [
+	'workbench.panel.*.hidden',
+	'workbench.*.views.state.hidden',
+	'workbench.view.*.state.hidden',
+	'workbench.views.service.*.state.hidden',
+];
 
 function run(executable: string, args: string[], options: SpawnSyncOptions = {}): void {
 	const result = spawnSync(executable, args, {
@@ -89,6 +121,24 @@ function getKeybindingsTargetPath(): string {
 		process.env.SEONGHO_CODE_KEYBINDINGS_TARGET ||
 		path.join(os.homedir(), 'Library/Application Support', product.nameShort, 'User/keybindings.json')
 	);
+}
+
+function getLayoutSourcePath(): string {
+	return path.resolve(
+		process.env.SEONGHO_CODE_LAYOUT_SOURCE ||
+		path.join(os.homedir(), 'Library/Application Support/Code/User/globalStorage/state.vscdb')
+	);
+}
+
+function getLayoutTargetPath(): string {
+	return path.resolve(
+		process.env.SEONGHO_CODE_LAYOUT_TARGET ||
+		path.join(os.homedir(), 'Library/Application Support', product.nameShort, 'User/globalStorage/state.vscdb')
+	);
+}
+
+function getLayoutMarkerPath(): string {
+	return `${getLayoutTargetPath()}.layout-seed-v${layoutSeedVersion}.json`;
 }
 
 function readPlistValue(appPath: string, key: string): string {
@@ -218,12 +268,64 @@ function assertSeededProfileFile(label: string, sourcePath: string, targetPath: 
 	}
 }
 
+function sqlString(value: string): string {
+	const quote = String.fromCharCode(39);
+	return `${quote}${value.replaceAll(quote, quote + quote)}${quote}`;
+}
+
+function getLayoutWhereClause(): string {
+	const exactKeys = layoutStateKeys.map(sqlString).join(', ');
+	const globs = layoutStateGlobs.map(pattern => `key GLOB ${sqlString(pattern)}`).join(' OR ');
+	return `key IN (${exactKeys}) OR ${globs}`;
+}
+
+function assertCodeAppNotRunning(appPath: string): void {
+	const executablePrefix = path.join(appPath, 'Contents/MacOS/');
+	const processes = capture('/bin/ps', ['-axo', 'command=']).split('\n');
+	if (processes.some(process => process.startsWith(executablePrefix))) {
+		throw new Error(`Quit Code before installing or seeding layout state: ${appPath}`);
+	}
+}
+
+function seedLayoutState(): void {
+	const sourcePath = getLayoutSourcePath();
+	const targetPath = getLayoutTargetPath();
+	const markerPath = getLayoutMarkerPath();
+	if (!fs.existsSync(sourcePath)) {
+		console.warn(`VS Code layout source is missing; skipping layout seed: ${sourcePath}`);
+		return;
+	}
+	if (fs.existsSync(markerPath)) {
+		console.log(`Preserved existing Code layout state: ${targetPath}`);
+		return;
+	}
+
+	fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+	if (fs.existsSync(targetPath)) {
+		fs.copyFileSync(targetPath, `${targetPath}.before-layout-seed-v${layoutSeedVersion}`, fs.constants.COPYFILE_EXCL);
+	} else {
+		capture('/usr/bin/sqlite3', [targetPath, 'CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);']);
+	}
+
+	const query = [
+		`ATTACH DATABASE ${sqlString(sourcePath)} AS sourceDb;`,
+		'BEGIN IMMEDIATE;',
+		`INSERT OR REPLACE INTO ItemTable(key, value) SELECT key, value FROM sourceDb.ItemTable WHERE ${getLayoutWhereClause()};`,
+		'SELECT changes();',
+		'COMMIT;',
+	].join(' ');
+	const seededCount = Number(capture('/usr/bin/sqlite3', [targetPath, query]).split('\n').at(-1));
+	fs.writeFileSync(markerPath, `${JSON.stringify({ version: layoutSeedVersion, sourcePath, seededCount }, null, 2)}\n`);
+	console.log(`Seeded Code layout state (${seededCount} keys): ${sourcePath} -> ${targetPath}`);
+}
+
 function install(): void {
 	ensureDarwin();
 	const sourceAppPath = getBuildAppPath();
 	const installAppPath = getInstallAppPath();
 	const temporaryAppPath = `${installAppPath}.install-${process.pid}`;
 	const backupAppPath = `${installAppPath}.backup-${process.pid}`;
+	assertCodeAppNotRunning(installAppPath);
 	assertExpectedApp(sourceAppPath);
 	prepareCliPath();
 
@@ -252,6 +354,7 @@ function install(): void {
 	refreshLaunchServices(installAppPath);
 	installCli(installAppPath);
 	seedProfileDefaults();
+	seedLayoutState();
 	console.log(`Installed app: ${installAppPath}`);
 }
 
@@ -276,6 +379,9 @@ function doctor(): void {
 	}
 	assertSeededProfileFile('settings', getSettingsSourcePath(), getSettingsTargetPath());
 	assertSeededProfileFile('keybindings', getKeybindingsSourcePath(), getKeybindingsTargetPath());
+	if (fs.existsSync(getLayoutSourcePath()) && !fs.existsSync(getLayoutMarkerPath())) {
+		throw new Error(`Seeded Code layout marker is missing: ${getLayoutMarkerPath()}`);
+	}
 
 	console.log(`Code doctor passed: ${installAppPath}`);
 }
