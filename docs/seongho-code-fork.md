@@ -1,7 +1,8 @@
 # Seongho Code Fork
 
-This repository is a thin Code OSS fork for replacing host-local VS Code bundle
-rewrites with source-level patches.
+This repository is the source of truth for Seongho Code. The local VS Code
+bundle rewrites have been moved into Code OSS source and are built as a fresh
+application.
 
 ## Baseline
 
@@ -13,8 +14,8 @@ rewrites with source-level patches.
 
 ## Product Identity
 
-The fork is intentionally separated from the existing local `/Applications/Code.app`
-managed by `codex-vscode-terminal-tools`.
+The fork installs as `/Applications/Seongho Code.app`. It does not modify the
+official Visual Studio Code bundle or the legacy `/Applications/Code.app`.
 
 - App name: `Seongho Code`
 - CLI and protocol name: `seongho-code`
@@ -22,7 +23,31 @@ managed by `codex-vscode-terminal-tools`.
 - Local user data folder: `.seongho-code`
 - Remote server data folder: `.seongho-code-server`
 
-## Local Build Commands
+## Local Workflow
+
+Build, sign, install, and verify the arm64 or x64 app for the current Mac:
+
+```sh
+source ~/.nvm/nvm.sh
+nvm use 24.15.0
+npm run seongho-code:apply
+```
+
+Check the installed app and CLI without changing host state:
+
+```sh
+npm run seongho-code:doctor
+```
+
+The workflow prefers the `Seongho Local Code Signing` identity and falls back
+to ad-hoc signing when that identity is unavailable. Override the defaults with
+`SEONGHO_CODE_SIGN_IDENTITY`, `SEONGHO_CODE_INSTALL_PATH`, or
+`SEONGHO_CODE_CLI_PATH`.
+
+The packaged app is written to `../VSCode-darwin-<arch>/Seongho Code.app` and
+the CLI is installed as `~/.local/bin/seongho-code`.
+
+## Development Commands
 
 ```sh
 source ~/.nvm/nvm.sh
@@ -40,7 +65,7 @@ nvm use 24.15.0
 ./scripts/code.sh --user-data-dir /tmp/seongho-code-user-data --extensions-dir /tmp/seongho-code-extensions
 ```
 
-## Patch Migration Order
+## Migrated Bundle Patches
 
 Move patches from `codex-vscode-terminal-tools` only when they are still needed
 after checking whether an extension API or product setting can own the behavior.
@@ -48,15 +73,20 @@ after checking whether an extension API or product setting can own the behavior.
 | Existing bundle patch | Source-level target | Status |
 | --- | --- | --- |
 | `patch-vscode-terminal-tabs-layout.js` | `src/vs/workbench/contrib/terminal/browser/terminalTabsList.ts` and `src/vs/workbench/contrib/terminal/browser/media/terminal.css` | Ported |
-| `patch-vscode-terminal-tabs-title-breaks.js` | Terminal tabs renderer title formatting | Next candidate |
-| `patch-vscode-terminal-order.js` | Terminal group service, terminal commands, and tab color commands | Candidate |
-| `patch-vscode-ime-guard.js` | Terminal keyboard event dispatch and composition handling | Candidate |
-| `patch-vscode-sticky-notifications.js` | Notification model/view policy | Candidate |
-| `patch-vscode-opaque-overlays.js` | Workbench CSS source | Candidate |
-| `patch-vscode-titlebar-center.js` | Workbench titlebar CSS source | Candidate |
-| `patch-vscode-watermark.js` | Workbench empty editor CSS source | Candidate |
-| `patch-vscode-icon.js` and `patch-vscode-dock-icon.js` | Product resources and macOS packaging | Candidate |
-| `patch-vscode-terminal-attach-by-pid.js` | Terminal attach command plumbing | Candidate |
+| `patch-vscode-terminal-tabs-title-breaks.js` | Terminal tabs renderer title formatting | Ported |
+| `patch-vscode-terminal-order.js` | Terminal group service, terminal commands, and tab color commands | Ported |
+| `patch-vscode-ime-guard.js` | Terminal keyboard event dispatch and composition handling | Ported |
+| `patch-vscode-sticky-notifications.js` | Notification model/view policy | Ported |
+| `patch-vscode-opaque-overlays.js` | Workbench CSS source | Ported |
+| `patch-vscode-titlebar-center.js` | Workbench titlebar CSS source | Ported |
+| `patch-vscode-watermark.js` | Workbench empty editor CSS source | Ported |
+| `patch-vscode-icon.js` and `patch-vscode-dock-icon.js` | Product resources and macOS packaging | Ported |
+| `patch-vscode-terminal-attach-by-pid.js` | Terminal attach command plumbing | Ported |
+
+The source fork also owns app signing and installation through
+`scripts/seongho-code/darwin.ts`. The host-tools repository remains responsible
+only for its extension runtime and user-level VS Code/Codex configuration; it
+is no longer required to rewrite this app bundle.
 
 ## Rebase Rule
 
