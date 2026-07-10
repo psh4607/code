@@ -76,7 +76,13 @@ export function getTerminalTabHighlightDuration(args: unknown): number {
 }
 
 export function getTerminalAttachProcessId(args: unknown): number | undefined {
-	const rawPid = isObject(args) && hasKey(args, { pid: true }) ? args.pid : args;
+	let rawPid = args;
+	if (isObject(args)) {
+		const candidate = args as { pid?: unknown };
+		if (hasKey(candidate, { pid: true })) {
+			rawPid = candidate.pid;
+		}
+	}
 	const pid = Number(rawPid);
 	return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
 }
