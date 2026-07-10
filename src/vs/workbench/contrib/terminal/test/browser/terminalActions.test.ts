@@ -8,7 +8,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
-import { changeTerminalColor, getTerminalTabHighlightDuration, WorkspaceFolderCwdPair, shrinkWorkspaceFolderCwdPairs } from '../../browser/terminalActions.js';
+import { changeTerminalColor, getTerminalAttachProcessId, getTerminalTabHighlightDuration, WorkspaceFolderCwdPair, shrinkWorkspaceFolderCwdPairs } from '../../browser/terminalActions.js';
 
 function makeFakeFolder(name: string, uri: URI): IWorkspaceFolder {
 	return {
@@ -42,6 +42,16 @@ suite('terminalActions', () => {
 		strictEqual(getTerminalTabHighlightDuration({ durationMs: 1 }), 100);
 		strictEqual(getTerminalTabHighlightDuration({ durationMs: 8000 }), 5000);
 		strictEqual(getTerminalTabHighlightDuration({ durationMs: '1250' }), 1250);
+	});
+
+	test('normalizes terminal attach process ids', () => {
+		strictEqual(getTerminalAttachProcessId(1234), 1234);
+		strictEqual(getTerminalAttachProcessId('1234'), 1234);
+		strictEqual(getTerminalAttachProcessId({ pid: 1234 }), 1234);
+		strictEqual(getTerminalAttachProcessId({ pid: '1234' }), 1234);
+		strictEqual(getTerminalAttachProcessId({ pid: 0 }), undefined);
+		strictEqual(getTerminalAttachProcessId({ pid: 1.5 }), undefined);
+		strictEqual(getTerminalAttachProcessId({}), undefined);
 	});
 
 	test('reports manually selected terminal colors with the cwd', async () => {

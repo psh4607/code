@@ -75,6 +75,12 @@ export function getTerminalTabHighlightDuration(args: unknown): number {
 	return Math.max(100, Math.min(durationMs, 5000));
 }
 
+export function getTerminalAttachProcessId(args: unknown): number | undefined {
+	const rawPid = isObject(args) && hasKey(args, { pid: true }) ? args.pid : args;
+	const pid = Number(rawPid);
+	return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
 export async function changeTerminalColor(
 	commandService: Pick<ICommandService, 'executeCommand'>,
 	terminal: Pick<ITerminalInstance, 'changeColor' | 'getSpeculativeCwd'> | undefined,
@@ -891,7 +897,7 @@ export function registerTerminalActions() {
 	registerTerminalAction({
 		id: TerminalCommandId.AttachToSession,
 		title: localize2('workbench.action.terminal.attachToSession', 'Attach to Session'),
-		run: async (c, accessor) => {
+		run: async (c, accessor, args) => {
 			const quickInputService = accessor.get(IQuickInputService);
 			const labelService = accessor.get(ILabelService);
 			const remoteAgentService = accessor.get(IRemoteAgentService);
@@ -922,7 +928,10 @@ export function registerTerminalActions() {
 				notificationService.info(localize('noUnattachedTerminals', 'There are no unattached terminals to attach to'));
 				return;
 			}
-			const selected = await quickInputService.pick<IRemoteTerminalPick>(items, { canPickMany: false });
+			const processId = getTerminalAttachProcessId(args);
+			const selected = processId === undefined
+				? await quickInputService.pick<IRemoteTerminalPick>(items, { canPickMany: false })
+				: items.find(item => item.term.pid === processId);
 			if (selected) {
 				const instance = await c.service.createTerminal({
 					config: { attachPersistentProcess: selected.term }
