@@ -77,6 +77,20 @@ function getSettingsTargetPath(): string {
 	);
 }
 
+function getKeybindingsSourcePath(): string {
+	return path.resolve(
+		process.env.SEONGHO_CODE_KEYBINDINGS_SOURCE ||
+		path.join(os.homedir(), 'Library/Application Support/Code/User/keybindings.json')
+	);
+}
+
+function getKeybindingsTargetPath(): string {
+	return path.resolve(
+		process.env.SEONGHO_CODE_KEYBINDINGS_TARGET ||
+		path.join(os.homedir(), 'Library/Application Support', product.nameShort, 'User/keybindings.json')
+	);
+}
+
 function readPlistValue(appPath: string, key: string): string {
 	return capture('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, path.join(appPath, 'Contents/Info.plist')]);
 }
@@ -178,21 +192,30 @@ function refreshLaunchServices(appPath: string): void {
 	}
 }
 
-function seedSettings(): void {
-	const sourcePath = getSettingsSourcePath();
-	const targetPath = getSettingsTargetPath();
+function seedProfileFile(label: string, sourcePath: string, targetPath: string): void {
 	if (!fs.existsSync(sourcePath)) {
-		console.warn(`VS Code settings source is missing; skipping profile seed: ${sourcePath}`);
+		console.warn(`VS Code ${label} source is missing; skipping profile seed: ${sourcePath}`);
 		return;
 	}
 	if (fs.existsSync(targetPath)) {
-		console.log(`Preserved existing Code settings: ${targetPath}`);
+		console.log(`Preserved existing Code ${label}: ${targetPath}`);
 		return;
 	}
 
 	fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 	fs.copyFileSync(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
-	console.log(`Seeded Code settings: ${sourcePath} -> ${targetPath}`);
+	console.log(`Seeded Code ${label}: ${sourcePath} -> ${targetPath}`);
+}
+
+function seedProfileDefaults(): void {
+	seedProfileFile('settings', getSettingsSourcePath(), getSettingsTargetPath());
+	seedProfileFile('keybindings', getKeybindingsSourcePath(), getKeybindingsTargetPath());
+}
+
+function assertSeededProfileFile(label: string, sourcePath: string, targetPath: string): void {
+	if (fs.existsSync(sourcePath) && !fs.existsSync(targetPath)) {
+		throw new Error(`Seeded Code ${label} are missing: ${targetPath}`);
+	}
 }
 
 function install(): void {
@@ -228,7 +251,7 @@ function install(): void {
 
 	refreshLaunchServices(installAppPath);
 	installCli(installAppPath);
-	seedSettings();
+	seedProfileDefaults();
 	console.log(`Installed app: ${installAppPath}`);
 }
 
@@ -251,9 +274,8 @@ function doctor(): void {
 	if (!fs.existsSync(extensionRegistryPath)) {
 		throw new Error(`Shared VS Code extension registry is missing: ${extensionRegistryPath}`);
 	}
-	if (fs.existsSync(getSettingsSourcePath()) && !fs.existsSync(getSettingsTargetPath())) {
-		throw new Error(`Seeded Code settings are missing: ${getSettingsTargetPath()}`);
-	}
+	assertSeededProfileFile('settings', getSettingsSourcePath(), getSettingsTargetPath());
+	assertSeededProfileFile('keybindings', getKeybindingsSourcePath(), getKeybindingsTargetPath());
 
 	console.log(`Code doctor passed: ${installAppPath}`);
 }

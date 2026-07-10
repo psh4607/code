@@ -47,9 +47,11 @@ to ad-hoc signing when that identity is unavailable. Override the defaults with
 
 The app reads the existing `~/.vscode/extensions/extensions.json` and extension
 directories directly. On first install, the workflow copies
-`~/Library/Application Support/Code/User/settings.json` into the isolated Code
-profile. An existing fork settings file is never overwritten. Override these
-paths with `SEONGHO_CODE_SETTINGS_SOURCE` and `SEONGHO_CODE_SETTINGS_TARGET`.
+`settings.json` and `keybindings.json` from
+`~/Library/Application Support/Code/User` into the isolated Code profile.
+Existing fork profile files are never overwritten. Override these paths with
+`SEONGHO_CODE_SETTINGS_SOURCE`, `SEONGHO_CODE_SETTINGS_TARGET`,
+`SEONGHO_CODE_KEYBINDINGS_SOURCE`, and `SEONGHO_CODE_KEYBINDINGS_TARGET`.
 
 The packaged app is written to `../VSCode-darwin-<arch>/Code.app` and
 the CLI is installed as `~/.local/bin/seongho-code`.
