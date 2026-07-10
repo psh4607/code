@@ -42,7 +42,7 @@ function capture(executable: string, args: string[]): string {
 
 function ensureDarwin(): void {
 	if (process.platform !== 'darwin') {
-		throw new Error('Seongho Code desktop packaging is currently supported only on macOS.');
+		throw new Error('Code desktop packaging is currently supported only on macOS.');
 	}
 	if (process.arch !== 'arm64' && process.arch !== 'x64') {
 		throw new Error(`Unsupported macOS architecture: ${process.arch}`);
@@ -67,7 +67,7 @@ function readPlistValue(appPath: string, key: string): string {
 
 function assertExpectedApp(appPath: string): void {
 	if (!fs.existsSync(appPath)) {
-		throw new Error(`Seongho Code app is missing: ${appPath}`);
+		throw new Error(`Code app is missing: ${appPath}`);
 	}
 
 	const bundleIdentifier = readPlistValue(appPath, 'CFBundleIdentifier');
@@ -214,7 +214,7 @@ function doctor(): void {
 		throw new Error(`CLI target mismatch: expected ${expectedCliTarget}, got ${actualCliTarget}`);
 	}
 
-	console.log(`Seongho Code doctor passed: ${installAppPath}`);
+	console.log(`Code doctor passed: ${installAppPath}`);
 }
 
 try {

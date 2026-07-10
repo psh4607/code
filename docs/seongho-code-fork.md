@@ -1,6 +1,6 @@
-# Seongho Code Fork
+# Code Fork
 
-This repository is the source of truth for Seongho Code. The local VS Code
+This repository is the source of truth for the local Code fork. The local VS Code
 bundle rewrites have been moved into Code OSS source and are built as a fresh
 application.
 
@@ -14,12 +14,12 @@ application.
 
 ## Product Identity
 
-The fork installs as `/Applications/Seongho Code.app`. It does not modify the
-official Visual Studio Code bundle or the legacy `/Applications/Code.app`.
+The fork installs as `/Applications/Code.app`. It replaces only that local
+bundle and does not modify the official Visual Studio Code bundle.
 
-- App name: `Seongho Code`
+- App name: `Code`
 - CLI and protocol name: `seongho-code`
-- macOS bundle id: `com.seongho.code`
+- macOS bundle id: `com.seongho.Code`
 - Local user data folder: `.seongho-code`
 - Remote server data folder: `.seongho-code-server`
 
@@ -44,7 +44,7 @@ to ad-hoc signing when that identity is unavailable. Override the defaults with
 `SEONGHO_CODE_SIGN_IDENTITY`, `SEONGHO_CODE_INSTALL_PATH`, or
 `SEONGHO_CODE_CLI_PATH`.
 
-The packaged app is written to `../VSCode-darwin-<arch>/Seongho Code.app` and
+The packaged app is written to `../VSCode-darwin-<arch>/Code.app` and
 the CLI is installed as `~/.local/bin/seongho-code`.
 
 ## Development Commands
