@@ -960,6 +960,7 @@
 		"--chat-current-response-min-height",
 		"--chat-smooth-delay",
 		"--chat-smooth-duration",
+		"--codex-terminal-tab-highlight-duration",
 		"--inline-chat-frame-progress",
 		"--insert-border-color",
 		"--last-tab-margin-right",

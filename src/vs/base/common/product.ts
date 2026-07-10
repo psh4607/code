@@ -245,6 +245,7 @@ export interface IProductConfiguration {
 	readonly darwinUniversalAssetId?: string;
 	readonly darwinBundleIdentifier?: string;
 	readonly darwinDockIcon?: string;
+	readonly hiddenEditorTitleCommands?: readonly string[];
 	readonly profileTemplatesUrl?: string;
 
 	readonly commonlyUsedSettings?: string[];

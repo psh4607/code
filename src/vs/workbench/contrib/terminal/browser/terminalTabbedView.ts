@@ -407,6 +407,22 @@ export class TerminalTabbedView extends Disposable {
 			}
 			void this._handleContainerDrop(event);
 		}));
+		this._register(dom.addDisposableListener(this._tabListDomElement, 'mousedown', async (event: MouseEvent) => {
+			if (!this._isTerminalTabsEmptyAreaEvent(event)) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			await this._focusLastTerminalTab();
+		}));
+		this._register(dom.addDisposableListener(this._tabListDomElement, 'click', (event: MouseEvent) => {
+			if (!this._isTerminalTabsEmptyAreaEvent(event)) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			setTimeout(() => void this._focusLastTerminalTab(), 0);
+		}));
 		this._register(dom.addDisposableListener(terminalContainer, 'mousedown', async (event: MouseEvent) => {
 			const terminal = this._terminalGroupService.activeInstance;
 			if (this._terminalGroupService.instances.length > 0 && terminal) {
@@ -472,6 +488,27 @@ export class TerminalTabbedView extends Disposable {
 		this._register(dom.addDisposableListener(this._tabContainer, dom.EventType.FOCUS_OUT, () => {
 			this._terminalTabsFocusContextKey.set(false);
 		}));
+	}
+
+	private _isTerminalTabsEmptyAreaEvent(event: MouseEvent): boolean {
+		if (event.button !== 0) {
+			return false;
+		}
+		return !(event.target as Element | null)?.closest?.('.monaco-list-row, .terminal-tabs-chat-entry');
+	}
+
+	private async _focusLastTerminalTab(): Promise<void> {
+		const index = this._terminalGroupService.instances.length - 1;
+		const instance = this._terminalGroupService.instances[index];
+		if (!instance) {
+			return;
+		}
+
+		this._terminalGroupService.setActiveInstance(instance);
+		this._tabList.setSelection([index]);
+		this._tabList.setFocus([index]);
+		this._tabList.reveal(index);
+		await instance.focusWhenReady();
 	}
 
 	private _shouldHandleEmptyAreaDrop(event: DragEvent): boolean {

@@ -66,6 +66,34 @@ import { ResourceContextKey } from '../../../common/contextkeys.js';
 import { SeparatorSelectOption } from '../../../../base/browser/ui/selectBox/selectBox.js';
 
 export const switchTerminalShowTabsTitle = localize('showTerminalTabs', "Show Tabs");
+export const CodexFlashActiveTerminalTabCommandId = 'codexTerminal.flashActiveTerminalTab';
+
+const terminalTabHighlightTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+
+export function getTerminalTabHighlightDuration(args: unknown): number {
+	const durationMs = Number((args as { durationMs?: unknown } | undefined)?.durationMs) || 1000;
+	return Math.max(100, Math.min(durationMs, 5000));
+}
+
+export async function changeTerminalColor(
+	commandService: Pick<ICommandService, 'executeCommand'>,
+	terminal: Pick<ITerminalInstance, 'changeColor' | 'getSpeculativeCwd'> | undefined,
+	color?: string,
+	skipQuickPick?: boolean,
+): Promise<string | undefined> {
+	if (!terminal) {
+		return undefined;
+	}
+
+	const result = await terminal.changeColor(color, skipQuickPick);
+	if (result) {
+		await commandService.executeCommand('codexTerminal.rememberCwdColor', {
+			cwd: await terminal.getSpeculativeCwd(),
+			color: result,
+		});
+	}
+	return result;
+}
 
 const category = terminalStrings.actionCategory;
 
@@ -294,6 +322,30 @@ function getTerminalServices(accessor: ServicesAccessor): ITerminalServicesColle
 }
 
 export function registerTerminalActions() {
+	registerTerminalAction({
+		id: CodexFlashActiveTerminalTabCommandId,
+		title: localize2('codexTerminal.flashActiveTerminalTab', 'Flash Active Terminal Tab'),
+		f1: false,
+		precondition: ContextKeyExpr.true(),
+		run: (_, __, args) => {
+			const body = getActiveWindow().document.body;
+			const durationMs = getTerminalTabHighlightDuration(args);
+			body.style.setProperty('--codex-terminal-tab-highlight-duration', `${durationMs}ms`);
+			body.classList.remove('codex-terminal-tab-highlight-flash');
+			void body.offsetWidth;
+			body.classList.add('codex-terminal-tab-highlight-flash');
+
+			const currentTimer = terminalTabHighlightTimers.get(body);
+			if (currentTimer) {
+				clearTimeout(currentTimer);
+			}
+			terminalTabHighlightTimers.set(body, setTimeout(() => {
+				body.classList.remove('codex-terminal-tab-highlight-flash');
+				terminalTabHighlightTimers.delete(body);
+			}, durationMs));
+		}
+	});
+
 	registerTerminalAction({
 		id: TerminalCommandId.NewInActiveWorkspace,
 		title: localize2('workbench.action.terminal.newInActiveWorkspace', 'Create New Terminal (In Active Workspace)'),
@@ -735,7 +787,10 @@ export function registerTerminalActions() {
 		id: TerminalCommandId.ChangeColor,
 		title: terminalStrings.changeColor,
 		precondition: sharedWhenClause.terminalAvailable,
-		run: (c, _, args) => getResourceOrActiveInstance(c, args)?.changeColor()
+		run: (c, accessor, args) => changeTerminalColor(
+			accessor.get(ICommandService),
+			getResourceOrActiveInstance(c, args)
+		)
 	});
 
 	registerTerminalAction({
@@ -746,14 +801,24 @@ export function registerTerminalActions() {
 		run: async (c, accessor, args) => {
 			let color: string | undefined;
 			let i = 0;
-			if (c.groupService.lastAccessedMenu === 'inline-tab') {
-				getResourceOrActiveInstance(c, args)?.changeColor();
+			const selectedInstances = getSelectedViewInstances(accessor);
+			if (typeof args === 'string' || args === null) {
+				for (const terminal of c.service.activeInstance ? [c.service.activeInstance] : []) {
+					const skipQuickPick = args === null || i !== 0;
+					color = await terminal.changeColor(args ?? undefined, skipQuickPick);
+					i++;
+				}
 				return;
 			}
-			for (const terminal of getSelectedViewInstances(accessor) ?? []) {
+			const commandService = accessor.get(ICommandService);
+			if (c.groupService.lastAccessedMenu === 'inline-tab') {
+				await changeTerminalColor(commandService, getResourceOrActiveInstance(c, args));
+				return;
+			}
+			for (const terminal of selectedInstances ?? []) {
 				const skipQuickPick = i !== 0;
 				// Always show the quickpick on the first iteration
-				color = await terminal.changeColor(color, skipQuickPick);
+				color = await changeTerminalColor(commandService, terminal, color, skipQuickPick);
 				i++;
 			}
 		}

@@ -23,6 +23,18 @@ import { TerminalContextKeys } from '../common/terminalContextKey.js';
 import { asArray } from '../../../../base/common/arrays.js';
 import type { SingleOrMany } from '../../../../base/common/types.js';
 
+export function moveTerminalGroupAfter<T>(groups: T[], group: T, target: T | undefined): boolean {
+	if (!target || group === target || !groups.includes(group) || !groups.includes(target)) {
+		return false;
+	}
+
+	const currentIndex = groups.indexOf(group);
+	groups.splice(currentIndex, 1);
+	const targetIndex = groups.indexOf(target);
+	groups.splice(targetIndex + 1, 0, group);
+	return currentIndex !== targetIndex + 1;
+}
+
 export class TerminalGroupService extends Disposable implements ITerminalGroupService {
 	declare _serviceBrand: undefined;
 
@@ -160,8 +172,10 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 	}
 
 	createGroup(slcOrInstance?: IShellLaunchConfig | ITerminalInstance): ITerminalGroup {
+		const activeGroup = this.activeGroup;
 		const group = this._instantiationService.createInstance(TerminalGroup, this._container, slcOrInstance);
 		this.groups.push(group);
+		moveTerminalGroupAfter(this.groups, group, activeGroup);
 		group.addDisposable(Event.forward(group.onPanelOrientationChanged, this._onDidChangePanelOrientation));
 		group.addDisposable(Event.forward(group.onDidDisposeInstance, this._onDidDisposeInstance));
 		group.addDisposable(Event.forward(group.onDidFocusInstance, this._onDidFocusInstance));
@@ -424,7 +438,12 @@ export class TerminalGroupService extends Disposable implements ITerminalGroupSe
 		}
 
 		oldGroup.removeInstance(instance);
-		this.createGroup(instance);
+		const newGroup = this.createGroup(instance);
+		if (moveTerminalGroupAfter(this.groups, newGroup, oldGroup)) {
+			this._onDidChangeGroups.fire();
+			this._onDidChangeInstances.fire();
+		}
+		this.setActiveInstance(instance);
 	}
 
 	joinInstances(instances: ITerminalInstance[]) {

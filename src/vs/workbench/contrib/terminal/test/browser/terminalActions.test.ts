@@ -3,11 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { deepStrictEqual } from 'assert';
+import { deepStrictEqual, strictEqual } from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
-import { WorkspaceFolderCwdPair, shrinkWorkspaceFolderCwdPairs } from '../../browser/terminalActions.js';
+import { changeTerminalColor, getTerminalTabHighlightDuration, WorkspaceFolderCwdPair, shrinkWorkspaceFolderCwdPairs } from '../../browser/terminalActions.js';
 
 function makeFakeFolder(name: string, uri: URI): IWorkspaceFolder {
 	return {
@@ -35,6 +36,50 @@ suite('terminalActions', () => {
 	const b = makeFakeFolder('b', URI.joinPath(root, 'b'));
 	const c = makeFakeFolder('c', URI.joinPath(root, 'c'));
 	const d = makeFakeFolder('d', URI.joinPath(root, 'd'));
+
+	test('normalizes terminal tab highlight duration', () => {
+		strictEqual(getTerminalTabHighlightDuration(undefined), 1000);
+		strictEqual(getTerminalTabHighlightDuration({ durationMs: 1 }), 100);
+		strictEqual(getTerminalTabHighlightDuration({ durationMs: 8000 }), 5000);
+		strictEqual(getTerminalTabHighlightDuration({ durationMs: '1250' }), 1250);
+	});
+
+	test('reports manually selected terminal colors with the cwd', async () => {
+		const commands: unknown[][] = [];
+		const commandService: Pick<ICommandService, 'executeCommand'> = {
+			async executeCommand<R>(commandId: string, ...args: unknown[]): Promise<R | undefined> {
+				commands.push([commandId, ...args]);
+				return undefined;
+			}
+		};
+		const terminal = {
+			changeColor: async () => 'terminal.ansiGreen',
+			getSpeculativeCwd: async () => '/workspace',
+		};
+
+		strictEqual(await changeTerminalColor(commandService, terminal), 'terminal.ansiGreen');
+		deepStrictEqual(commands, [[
+			'codexTerminal.rememberCwdColor',
+			{ cwd: '/workspace', color: 'terminal.ansiGreen' }
+		]]);
+	});
+
+	test('does not report canceled or reset terminal colors', async () => {
+		const commands: unknown[][] = [];
+		const commandService: Pick<ICommandService, 'executeCommand'> = {
+			async executeCommand<R>(commandId: string, ...args: unknown[]): Promise<R | undefined> {
+				commands.push([commandId, ...args]);
+				return undefined;
+			}
+		};
+		const terminal = {
+			changeColor: async () => undefined,
+			getSpeculativeCwd: async () => '/workspace',
+		};
+
+		strictEqual(await changeTerminalColor(commandService, terminal, undefined, true), undefined);
+		deepStrictEqual(commands, []);
+	});
 
 	suite('shrinkWorkspaceFolderCwdPairs', () => {
 		test('should return empty when given array is empty', () => {

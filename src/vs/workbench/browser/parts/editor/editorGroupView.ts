@@ -58,6 +58,18 @@ import { IEditorResolverService } from '../../../services/editor/common/editorRe
 import { IHostService } from '../../../services/host/browser/host.js';
 import { DiffEditorInput } from '../../../common/editor/diffEditorInput.js';
 import { FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
+
+export function filterEditorTitleActions<T extends { id: string }>(groups: [string, T[]][], hiddenCommandIds: readonly string[] | undefined): [string, T[]][] {
+	if (!hiddenCommandIds?.length) {
+		return groups;
+	}
+
+	const hiddenCommands = new Set(hiddenCommandIds);
+	return groups
+		.map(([group, actions]) => [group, actions.filter(action => !hiddenCommands.has(action.id))] as [string, T[]])
+		.filter(([, actions]) => actions.length > 0);
+}
 
 export class EditorGroupView extends Themable implements IEditorGroupView {
 
@@ -161,7 +173,8 @@ export class EditorGroupView extends Themable implements IEditorGroupView {
 		@IEditorResolverService private readonly editorResolverService: IEditorResolverService,
 		@IHostService private readonly hostService: IHostService,
 		@IDialogService private readonly dialogService: IDialogService,
-		@IFileService private readonly fileService: IFileService
+		@IFileService private readonly fileService: IFileService,
+		@IProductService private readonly productService: IProductService,
 	) {
 		super(themeService);
 
@@ -2099,7 +2112,10 @@ export class EditorGroupView extends Themable implements IEditorGroupView {
 			const shouldInlineGroup = (action: SubmenuAction, group: string) => group === 'navigation' && action.actions.length <= 1;
 
 			actions = getActionBarActions(
-				editorTitleMenu.getActions({ arg: this.resourceContext.get(), shouldForwardArgs: true, renderShortTitle: true }),
+				filterEditorTitleActions(
+					editorTitleMenu.getActions({ arg: this.resourceContext.get(), shouldForwardArgs: true, renderShortTitle: true }),
+					this.productService.hiddenEditorTitleCommands
+				),
 				'navigation',
 				shouldInlineGroup
 			);

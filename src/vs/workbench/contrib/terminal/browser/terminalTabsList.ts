@@ -18,7 +18,7 @@ import { ActionBar } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { MenuItemAction } from '../../../../platform/actions/common/actions.js';
 import { MenuEntryActionViewItem } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
 import { TerminalCommandId } from '../common/terminal.js';
-import { ITerminalBackend, TerminalLocation, TerminalSettingId } from '../../../../platform/terminal/common/terminal.js';
+import { ITerminalBackend, TerminalSettingId } from '../../../../platform/terminal/common/terminal.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Action } from '../../../../base/common/actions.js';
 import { DEFAULT_LABELS_CONTAINER, IResourceLabel, ResourceLabels } from '../../../browser/labels.js';
@@ -182,9 +182,7 @@ export class TerminalTabList extends WorkbenchList<ITerminalInstance> {
 			if (!e.element) {
 				e.browserEvent.preventDefault();
 				e.browserEvent.stopPropagation();
-				const instance = await this._terminalService.createTerminal({ location: TerminalLocation.Panel });
-				this._terminalGroupService.setActiveInstance(instance);
-				await instance.focusWhenReady();
+				await this._focusLastTerminalTab();
 				return;
 			}
 
@@ -200,6 +198,13 @@ export class TerminalTabList extends WorkbenchList<ITerminalInstance> {
 		// on left click, if focus mode = single click, focus the element
 		// unless multi-selection is in progress
 		this.disposables.add(this.onMouseClick(async e => {
+			if (!e.element) {
+				e.browserEvent.preventDefault();
+				e.browserEvent.stopPropagation();
+				await this._focusLastTerminalTab();
+				return;
+			}
+
 			if (this._terminalEditingService.getEditingTerminal()?.instanceId === e.element?.instanceId) {
 				return;
 			}
@@ -247,6 +252,20 @@ export class TerminalTabList extends WorkbenchList<ITerminalInstance> {
 			this.disposables.add(decorationsService.registerDecorationsProvider(this._decorationsProvider));
 		}
 		this.refresh();
+	}
+
+	private async _focusLastTerminalTab(): Promise<void> {
+		const index = this._terminalGroupService.instances.length - 1;
+		const instance = this._terminalGroupService.instances[index];
+		if (!instance) {
+			return;
+		}
+
+		this._terminalGroupService.setActiveInstance(instance);
+		this.setSelection([index]);
+		this.setFocus([index]);
+		this.reveal(index);
+		await instance.focusWhenReady();
 	}
 
 	private _getFocusMode(): 'singleClick' | 'doubleClick' {

@@ -27,6 +27,10 @@
 	"win32TunnelMutex": "seongho-code-tunnel",
 	"darwinBundleIdentifier": "com.seongho.code",
 	"darwinDockIcon": "resources/darwin/code.png",
+	"hiddenEditorTitleCommands": [
+		"claude-vscode.editor.openLast",
+		"claude-vscode.terminal.open"
+	],
 	"darwinProfileUUID": "12B0FA70-533C-4B4C-9D96-821D37A35E64",
 	"darwinProfilePayloadUUID": "4326AD99-3292-4C53-A5C5-0609FD2A6506",
 	"linuxIconName": "seongho-code",
