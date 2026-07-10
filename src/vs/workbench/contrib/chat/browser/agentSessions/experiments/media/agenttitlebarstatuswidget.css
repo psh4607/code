@@ -4,6 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 /* Command Center Integration */
+.monaco-workbench .part.titlebar .agent-status-container {
+	display: none !important;
+}
+
 .unified-agents-bar .command-center .action-item.command-center-center {
 	display: none !important;
 }

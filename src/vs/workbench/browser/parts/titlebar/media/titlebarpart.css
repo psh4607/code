@@ -139,6 +139,7 @@
 
 /* Window Title Menu */
 .monaco-workbench .part.titlebar > .titlebar-container > .titlebar-center > .window-title > .command-center {
+	display: none !important;
 	z-index: 2500;
 	-webkit-app-region: no-drag;
 }

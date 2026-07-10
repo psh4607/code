@@ -24,6 +24,10 @@
 .monaco-dialog-box {
 	display: flex;
 	flex-direction: column-reverse;
+	background: var(--vscode-editorWidget-background, #252526) !important;
+	background-image: none !important;
+	backdrop-filter: none !important;
+	opacity: 1 !important;
 	width: min-content;
 	min-width: 480px;
 	max-width: 90vw;

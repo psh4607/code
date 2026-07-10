@@ -9,6 +9,10 @@
 	z-index: 2550;
 	left: 50%;
 	-webkit-app-region: no-drag;
+	background: var(--vscode-quickInput-background, var(--vscode-editorWidget-background, #252526)) !important;
+	background-image: none !important;
+	backdrop-filter: none !important;
+	opacity: 1 !important;
 	border-radius: var(--vscode-cornerRadius-xLarge);
 	box-shadow: var(--vscode-shadow-xl);
 }
@@ -199,6 +203,7 @@
 	overflow: hidden;
 	max-height: calc(20 * 22px);
 	padding-bottom: 7px;
+	background: var(--vscode-quickInput-background, var(--vscode-editorWidget-background, #252526)) !important;
 }
 
 .quick-input-list .monaco-scrollable-element {
