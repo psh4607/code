@@ -268,6 +268,13 @@ async function main(arch: string = process.arch): Promise<void> {
 	const electronPath = path.join(root, '.build', 'electron');
 	await util.rimraf(electronPath)();
 	await util.streamToPromise(getElectron(arch)());
+
+	if (process.platform === 'darwin' && product.darwinDockIcon) {
+		await fs.promises.copyFile(
+			path.join(root, product.darwinDockIcon),
+			path.join(electronPath, `${product.nameLong}.app`, 'Contents', 'Resources', path.basename(product.darwinDockIcon))
+		);
+	}
 }
 
 if (import.meta.main) {

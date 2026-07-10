@@ -444,6 +444,11 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				...(platform === 'win32' ? ['!**/electron_proxy.exe'] : []),
 			], { dot: true }));
 
+		if (platform === 'darwin' && product.darwinDockIcon) {
+			result = es.merge(result, gulp.src(product.darwinDockIcon)
+				.pipe(rename(path.join(`${product.nameLong}.app`, 'Contents', 'Resources', path.basename(product.darwinDockIcon)))));
+		}
+
 		if (platform === 'linux') {
 			result = es.merge(result, gulp.src('resources/completions/bash/code', { base: '.' })
 				.pipe(replace('@@APPNAME@@', product.applicationName))

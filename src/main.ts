@@ -153,6 +153,8 @@ if (process.platform === 'win32' || process.platform === 'linux') {
 
 // Load our code once ready
 app.once('ready', function () {
+	setDarwinDockIcon();
+
 	if (args['trace']) {
 		let traceOptions: Electron.TraceConfig | Electron.TraceCategoriesAndOptions;
 		if (args['trace-memory-infra']) {
@@ -189,6 +191,21 @@ app.once('ready', function () {
 		onReady();
 	}
 });
+
+function setDarwinDockIcon(): void {
+	if (process.platform !== 'darwin' || !product.darwinDockIcon) {
+		return;
+	}
+
+	try {
+		const iconPath = path.join(process.resourcesPath, path.basename(product.darwinDockIcon));
+		if (fs.existsSync(iconPath)) {
+			app.dock?.setIcon(iconPath);
+		}
+	} catch (error) {
+		console.error('[main] Custom Dock icon setup failed', error);
+	}
+}
 
 async function onReady() {
 	perf.mark('code/mainAppReady');
