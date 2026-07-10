@@ -2,7 +2,7 @@
 	"nameShort": "Seongho Code",
 	"nameLong": "Code",
 	"applicationName": "seongho-code",
-	"dataFolderName": ".seongho-code",
+	"dataFolderName": ".vscode",
 	"sharedDataFolderName": ".seongho-code-shared",
 	"win32MutexName": "seonghocode",
 	"licenseName": "MIT",

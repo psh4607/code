@@ -12,8 +12,10 @@ const os = require('node:os') as typeof import('node:os');
 const path = require('node:path') as typeof import('node:path');
 
 interface ProductConfiguration {
+	nameShort: string;
 	nameLong: string;
 	applicationName: string;
+	dataFolderName: string;
 	darwinBundleIdentifier: string;
 }
 
@@ -59,6 +61,20 @@ function getInstallAppPath(): string {
 
 function getCliPath(): string {
 	return path.resolve(process.env.SEONGHO_CODE_CLI_PATH || path.join(os.homedir(), '.local/bin', product.applicationName));
+}
+
+function getSettingsSourcePath(): string {
+	return path.resolve(
+		process.env.SEONGHO_CODE_SETTINGS_SOURCE ||
+		path.join(os.homedir(), 'Library/Application Support/Code/User/settings.json')
+	);
+}
+
+function getSettingsTargetPath(): string {
+	return path.resolve(
+		process.env.SEONGHO_CODE_SETTINGS_TARGET ||
+		path.join(os.homedir(), 'Library/Application Support', product.nameShort, 'User/settings.json')
+	);
 }
 
 function readPlistValue(appPath: string, key: string): string {
@@ -162,6 +178,23 @@ function refreshLaunchServices(appPath: string): void {
 	}
 }
 
+function seedSettings(): void {
+	const sourcePath = getSettingsSourcePath();
+	const targetPath = getSettingsTargetPath();
+	if (!fs.existsSync(sourcePath)) {
+		console.warn(`VS Code settings source is missing; skipping profile seed: ${sourcePath}`);
+		return;
+	}
+	if (fs.existsSync(targetPath)) {
+		console.log(`Preserved existing Code settings: ${targetPath}`);
+		return;
+	}
+
+	fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+	fs.copyFileSync(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
+	console.log(`Seeded Code settings: ${sourcePath} -> ${targetPath}`);
+}
+
 function install(): void {
 	ensureDarwin();
 	const sourceAppPath = getBuildAppPath();
@@ -195,6 +228,7 @@ function install(): void {
 
 	refreshLaunchServices(installAppPath);
 	installCli(installAppPath);
+	seedSettings();
 	console.log(`Installed app: ${installAppPath}`);
 }
 
@@ -202,6 +236,7 @@ function doctor(): void {
 	ensureDarwin();
 	const installAppPath = getInstallAppPath();
 	const cliPath = getCliPath();
+	const extensionRegistryPath = path.join(os.homedir(), product.dataFolderName, 'extensions/extensions.json');
 	assertExpectedApp(installAppPath);
 	run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', installAppPath]);
 
@@ -212,6 +247,12 @@ function doctor(): void {
 	const actualCliTarget = fs.readlinkSync(cliPath);
 	if (actualCliTarget !== expectedCliTarget) {
 		throw new Error(`CLI target mismatch: expected ${expectedCliTarget}, got ${actualCliTarget}`);
+	}
+	if (!fs.existsSync(extensionRegistryPath)) {
+		throw new Error(`Shared VS Code extension registry is missing: ${extensionRegistryPath}`);
+	}
+	if (fs.existsSync(getSettingsSourcePath()) && !fs.existsSync(getSettingsTargetPath())) {
+		throw new Error(`Seeded Code settings are missing: ${getSettingsTargetPath()}`);
 	}
 
 	console.log(`Code doctor passed: ${installAppPath}`);

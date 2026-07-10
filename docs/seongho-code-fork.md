@@ -21,7 +21,7 @@ bundle and does not modify the official Visual Studio Code bundle.
 - CLI and protocol name: `seongho-code`
 - macOS bundle id: `com.seongho.Code`
 - macOS user data: `~/Library/Application Support/Seongho Code`
-- Local user data folder: `.seongho-code`
+- Extension data folder: `~/.vscode` (shared with Visual Studio Code)
 - Remote server data folder: `.seongho-code-server`
 
 ## Local Workflow
@@ -44,6 +44,12 @@ The workflow prefers the `Seongho Local Code Signing` identity and falls back
 to ad-hoc signing when that identity is unavailable. Override the defaults with
 `SEONGHO_CODE_SIGN_IDENTITY`, `SEONGHO_CODE_INSTALL_PATH`, or
 `SEONGHO_CODE_CLI_PATH`.
+
+The app reads the existing `~/.vscode/extensions/extensions.json` and extension
+directories directly. On first install, the workflow copies
+`~/Library/Application Support/Code/User/settings.json` into the isolated Code
+profile. An existing fork settings file is never overwritten. Override these
+paths with `SEONGHO_CODE_SETTINGS_SOURCE` and `SEONGHO_CODE_SETTINGS_TARGET`.
 
 The packaged app is written to `../VSCode-darwin-<arch>/Code.app` and
 the CLI is installed as `~/.local/bin/seongho-code`.
