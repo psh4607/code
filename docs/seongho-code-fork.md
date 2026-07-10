@@ -20,6 +20,7 @@ bundle and does not modify the official Visual Studio Code bundle.
 - App name: `Code`
 - CLI and protocol name: `seongho-code`
 - macOS bundle id: `com.seongho.Code`
+- macOS user data: `~/Library/Application Support/Seongho Code`
 - Local user data folder: `.seongho-code`
 - Remote server data folder: `.seongho-code-server`
 

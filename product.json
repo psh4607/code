@@ -1,5 +1,5 @@
 {
-	"nameShort": "Code",
+	"nameShort": "Seongho Code",
 	"nameLong": "Code",
 	"applicationName": "seongho-code",
 	"dataFolderName": ".seongho-code",
@@ -26,6 +26,7 @@
 	"win32TunnelServiceMutex": "seongho-code-tunnelservice",
 	"win32TunnelMutex": "seongho-code-tunnel",
 	"darwinBundleIdentifier": "com.seongho.Code",
+	"darwinExecutable": "Code",
 	"darwinDockIcon": "resources/darwin/code.png",
 	"hiddenEditorTitleCommands": [
 		"claude-vscode.editor.openLast",
