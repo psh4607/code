@@ -54,11 +54,17 @@ Existing fork profile files are never overwritten. Override these paths with
 `SEONGHO_CODE_KEYBINDINGS_SOURCE`, and `SEONGHO_CODE_KEYBINDINGS_TARGET`.
 
 The workflow also seeds selected workbench layout keys from the existing VS
-Code `User/globalStorage/state.vscdb` once. It migrates activity bar, side bar,
-auxiliary bar, panel, status bar, and view-container layout state without
-copying accounts, extension global state, recent items, or chat state. The
-target database is backed up before the merge. Override the database paths with
-`SEONGHO_CODE_LAYOUT_SOURCE` and `SEONGHO_CODE_LAYOUT_TARGET`.
+Code profile once. Global state includes quick input placement, activity bar,
+side bar, auxiliary bar, panel, status bar, pinned view containers, and custom
+view locations.
+Workspace state includes each folder's visible side bars, active containers,
+and collapsed views. The most recent empty VS Code window is mapped to the
+current empty Code window. Editor restore, terminals, accounts, extension
+state, recent items, and chat state are not copied. Every target database is
+backed up before the merge. Override the database paths with
+`SEONGHO_CODE_LAYOUT_SOURCE`, `SEONGHO_CODE_LAYOUT_TARGET`,
+`SEONGHO_CODE_WORKSPACE_LAYOUT_SOURCE`, and
+`SEONGHO_CODE_WORKSPACE_LAYOUT_TARGET`.
 
 The packaged app is written to `../VSCode-darwin-<arch>/Code.app` and
 the CLI is installed as `~/.local/bin/seongho-code`.

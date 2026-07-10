@@ -23,11 +23,12 @@ const root = path.resolve(__dirname, '../..');
 const product = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8')) as ProductConfiguration;
 const preferredSigningIdentity = 'Seongho Local Code Signing';
 const command = process.argv[2];
-const layoutSeedVersion = 1;
-const layoutStateKeys = [
+const layoutSeedVersion = 3;
+const globalLayoutStateKeys = [
 	'peekViewLayout',
 	'terminal.hidden',
 	'views.cachedViewPositions',
+	'views.customizations',
 	'workbench.activity.pinnedViewlets2',
 	'workbench.activity.placeholderViewlets',
 	'workbench.activity.showAccounts',
@@ -44,16 +45,44 @@ const layoutStateKeys = [
 	'workbench.panel.pinnedPanels',
 	'workbench.panel.placeholderPanels',
 	'workbench.panel.size',
+	'workbench.quickInput.viewState',
 	'workbench.sideBar.position',
 	'workbench.sideBar.size',
 	'workbench.statusBar.hidden',
 	'workbench.statusbar.hidden',
 ];
-const layoutStateGlobs = [
+const globalLayoutStateGlobs = [
 	'workbench.panel.*.hidden',
 	'workbench.*.views.state.hidden',
 	'workbench.view.*.state.hidden',
 	'workbench.views.service.*.state.hidden',
+];
+const workspaceLayoutStateKeys = [
+	'workbench.activity.viewletsWorkspaceState',
+	'workbench.activityBar.hidden',
+	'workbench.auxiliaryBar.hidden',
+	'workbench.auxiliaryBar.lastNonMaximizedVisibility',
+	'workbench.auxiliaryBar.wasLastMaximized',
+	'workbench.auxiliarybar.activepanelid',
+	'workbench.auxiliarybar.viewContainersWorkspaceState',
+	'workbench.editor.centered',
+	'workbench.editor.hidden',
+	'workbench.panel.hidden',
+	'workbench.panel.position',
+	'workbench.panel.viewContainersWorkspaceState',
+	'workbench.panel.wasLastMaximized',
+	'workbench.sideBar.hidden',
+	'workbench.sideBar.position',
+	'workbench.sidebar.activeviewletid',
+	'workbench.statusBar.hidden',
+];
+const workspaceLayoutStateGlobs = [
+	'workbench.*.views.state',
+	'workbench.panel.*',
+	'workbench.view.*.numberOfVisibleViews',
+	'workbench.view.*.state',
+	'workbench.views.service.*.numberOfVisibleViews',
+	'workbench.views.service.*.state',
 ];
 
 function run(executable: string, args: string[], options: SpawnSyncOptions = {}): void {
@@ -72,6 +101,10 @@ function run(executable: string, args: string[], options: SpawnSyncOptions = {})
 
 function capture(executable: string, args: string[]): string {
 	return execFileSync(executable, args, { cwd: root, encoding: 'utf8' }).trim();
+}
+
+function removeDirectory(directoryPath: string): void {
+	fs.rmSync(directoryPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 function ensureDarwin(): void {
@@ -134,6 +167,20 @@ function getLayoutTargetPath(): string {
 	return path.resolve(
 		process.env.SEONGHO_CODE_LAYOUT_TARGET ||
 		path.join(os.homedir(), 'Library/Application Support', product.nameShort, 'User/globalStorage/state.vscdb')
+	);
+}
+
+function getWorkspaceLayoutSourcePath(): string {
+	return path.resolve(
+		process.env.SEONGHO_CODE_WORKSPACE_LAYOUT_SOURCE ||
+		path.join(os.homedir(), 'Library/Application Support/Code/User/workspaceStorage')
+	);
+}
+
+function getWorkspaceLayoutTargetPath(): string {
+	return path.resolve(
+		process.env.SEONGHO_CODE_WORKSPACE_LAYOUT_TARGET ||
+		path.join(os.homedir(), 'Library/Application Support', product.nameShort, 'User/workspaceStorage')
 	);
 }
 
@@ -273,10 +320,96 @@ function sqlString(value: string): string {
 	return `${quote}${value.replaceAll(quote, quote + quote)}${quote}`;
 }
 
-function getLayoutWhereClause(): string {
-	const exactKeys = layoutStateKeys.map(sqlString).join(', ');
-	const globs = layoutStateGlobs.map(pattern => `key GLOB ${sqlString(pattern)}`).join(' OR ');
+function getLayoutWhereClause(exactStateKeys: string[], stateGlobs: string[]): string {
+	const exactKeys = exactStateKeys.map(sqlString).join(', ');
+	const globs = stateGlobs.map(pattern => `key GLOB ${sqlString(pattern)}`).join(' OR ');
 	return `key IN (${exactKeys}) OR ${globs}`;
+}
+
+function ensureStateDatabase(databasePath: string): void {
+	fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+	if (!fs.existsSync(databasePath)) {
+		capture('/usr/bin/sqlite3', [databasePath, 'CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);']);
+	}
+}
+
+function mergeLayoutState(sourcePath: string, targetPath: string, whereClause: string): number {
+	ensureStateDatabase(targetPath);
+	const backupPath = `${targetPath}.before-layout-seed-v${layoutSeedVersion}`;
+	if (!fs.existsSync(backupPath)) {
+		fs.copyFileSync(targetPath, backupPath, fs.constants.COPYFILE_EXCL);
+	}
+
+	const query = [
+		`ATTACH DATABASE ${sqlString(sourcePath)} AS sourceDb;`,
+		'BEGIN IMMEDIATE;',
+		`DELETE FROM ItemTable WHERE ${whereClause};`,
+		`INSERT OR REPLACE INTO ItemTable(key, value) SELECT key, value FROM sourceDb.ItemTable WHERE ${whereClause};`,
+		'SELECT changes();',
+		'COMMIT;',
+	].join(' ');
+	return Number(capture('/usr/bin/sqlite3', [targetPath, query]).split('\n').at(-1));
+}
+
+function getMostRecentEmptyWindowStatePath(storagePath: string): string | undefined {
+	if (!fs.existsSync(storagePath)) {
+		return undefined;
+	}
+
+	return fs.readdirSync(storagePath, { withFileTypes: true })
+		.filter(entry => entry.isDirectory() && /^\d+$/.test(entry.name))
+		.map(entry => path.join(storagePath, entry.name, 'state.vscdb'))
+		.filter(databasePath => fs.existsSync(databasePath))
+		.sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)
+		.at(0);
+}
+
+interface WorkspaceLayoutSeedResult {
+	workspaceCount: number;
+	seededKeyCount: number;
+	emptyWindowSeeded: boolean;
+}
+
+function seedWorkspaceLayoutState(): WorkspaceLayoutSeedResult {
+	const sourceStoragePath = getWorkspaceLayoutSourcePath();
+	const targetStoragePath = getWorkspaceLayoutTargetPath();
+	const result: WorkspaceLayoutSeedResult = { workspaceCount: 0, seededKeyCount: 0, emptyWindowSeeded: false };
+	if (!fs.existsSync(sourceStoragePath)) {
+		console.warn(`VS Code workspace layout source is missing; skipping workspace layout seed: ${sourceStoragePath}`);
+		return result;
+	}
+
+	const whereClause = getLayoutWhereClause(workspaceLayoutStateKeys, workspaceLayoutStateGlobs);
+	for (const entry of fs.readdirSync(sourceStoragePath, { withFileTypes: true })) {
+		if (!entry.isDirectory()) {
+			continue;
+		}
+
+		const sourceDirectory = path.join(sourceStoragePath, entry.name);
+		const workspaceMetadataPath = path.join(sourceDirectory, 'workspace.json');
+		const sourceDatabasePath = path.join(sourceDirectory, 'state.vscdb');
+		if (!fs.existsSync(workspaceMetadataPath) || !fs.existsSync(sourceDatabasePath)) {
+			continue;
+		}
+
+		const targetDirectory = path.join(targetStoragePath, entry.name);
+		const targetMetadataPath = path.join(targetDirectory, 'workspace.json');
+		fs.mkdirSync(targetDirectory, { recursive: true });
+		if (!fs.existsSync(targetMetadataPath)) {
+			fs.copyFileSync(workspaceMetadataPath, targetMetadataPath, fs.constants.COPYFILE_EXCL);
+		}
+		result.seededKeyCount += mergeLayoutState(sourceDatabasePath, path.join(targetDirectory, 'state.vscdb'), whereClause);
+		result.workspaceCount++;
+	}
+
+	const emptyWindowSourcePath = getMostRecentEmptyWindowStatePath(sourceStoragePath);
+	const emptyWindowTargetPath = getMostRecentEmptyWindowStatePath(targetStoragePath);
+	if (emptyWindowSourcePath && emptyWindowTargetPath) {
+		result.seededKeyCount += mergeLayoutState(emptyWindowSourcePath, emptyWindowTargetPath, whereClause);
+		result.emptyWindowSeeded = true;
+	}
+
+	return result;
 }
 
 function assertCodeAppNotRunning(appPath: string): void {
@@ -291,32 +424,38 @@ function seedLayoutState(): void {
 	const sourcePath = getLayoutSourcePath();
 	const targetPath = getLayoutTargetPath();
 	const markerPath = getLayoutMarkerPath();
-	if (!fs.existsSync(sourcePath)) {
-		console.warn(`VS Code layout source is missing; skipping layout seed: ${sourcePath}`);
-		return;
-	}
 	if (fs.existsSync(markerPath)) {
 		console.log(`Preserved existing Code layout state: ${targetPath}`);
 		return;
 	}
 
-	fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-	if (fs.existsSync(targetPath)) {
-		fs.copyFileSync(targetPath, `${targetPath}.before-layout-seed-v${layoutSeedVersion}`, fs.constants.COPYFILE_EXCL);
+	let globalSeededKeyCount = 0;
+	if (fs.existsSync(sourcePath)) {
+		globalSeededKeyCount = mergeLayoutState(
+			sourcePath,
+			targetPath,
+			getLayoutWhereClause(globalLayoutStateKeys, globalLayoutStateGlobs)
+		);
 	} else {
-		capture('/usr/bin/sqlite3', [targetPath, 'CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);']);
+		console.warn(`VS Code layout source is missing; skipping global layout seed: ${sourcePath}`);
 	}
 
-	const query = [
-		`ATTACH DATABASE ${sqlString(sourcePath)} AS sourceDb;`,
-		'BEGIN IMMEDIATE;',
-		`INSERT OR REPLACE INTO ItemTable(key, value) SELECT key, value FROM sourceDb.ItemTable WHERE ${getLayoutWhereClause()};`,
-		'SELECT changes();',
-		'COMMIT;',
-	].join(' ');
-	const seededCount = Number(capture('/usr/bin/sqlite3', [targetPath, query]).split('\n').at(-1));
-	fs.writeFileSync(markerPath, `${JSON.stringify({ version: layoutSeedVersion, sourcePath, seededCount }, null, 2)}\n`);
-	console.log(`Seeded Code layout state (${seededCount} keys): ${sourcePath} -> ${targetPath}`);
+	const workspaceResult = seedWorkspaceLayoutState();
+	fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+	fs.writeFileSync(markerPath, `${JSON.stringify({
+		version: layoutSeedVersion,
+		global: { sourcePath, targetPath, seededKeyCount: globalSeededKeyCount },
+		workspace: {
+			sourcePath: getWorkspaceLayoutSourcePath(),
+			targetPath: getWorkspaceLayoutTargetPath(),
+			...workspaceResult,
+		},
+	}, null, 2)}\n`);
+	console.log(
+		`Seeded Code layout state (${globalSeededKeyCount} global keys, ` +
+		`${workspaceResult.seededKeyCount} keys across ${workspaceResult.workspaceCount} workspaces` +
+		`${workspaceResult.emptyWindowSeeded ? ' and the current empty window' : ''}).`
+	);
 }
 
 function install(): void {
@@ -329,8 +468,8 @@ function install(): void {
 	assertExpectedApp(sourceAppPath);
 	prepareCliPath();
 
-	fs.rmSync(temporaryAppPath, { recursive: true, force: true });
-	fs.rmSync(backupAppPath, { recursive: true, force: true });
+	removeDirectory(temporaryAppPath);
+	removeDirectory(backupAppPath);
 	run('/usr/bin/ditto', [sourceAppPath, temporaryAppPath]);
 	signApp(temporaryAppPath);
 
@@ -342,9 +481,9 @@ function install(): void {
 			movedExistingApp = true;
 		}
 		fs.renameSync(temporaryAppPath, installAppPath);
-		fs.rmSync(backupAppPath, { recursive: true, force: true });
+		removeDirectory(backupAppPath);
 	} catch (error) {
-		fs.rmSync(temporaryAppPath, { recursive: true, force: true });
+		removeDirectory(temporaryAppPath);
 		if (movedExistingApp && !fs.existsSync(installAppPath) && fs.existsSync(backupAppPath)) {
 			fs.renameSync(backupAppPath, installAppPath);
 		}
@@ -379,7 +518,10 @@ function doctor(): void {
 	}
 	assertSeededProfileFile('settings', getSettingsSourcePath(), getSettingsTargetPath());
 	assertSeededProfileFile('keybindings', getKeybindingsSourcePath(), getKeybindingsTargetPath());
-	if (fs.existsSync(getLayoutSourcePath()) && !fs.existsSync(getLayoutMarkerPath())) {
+	if (
+		(fs.existsSync(getLayoutSourcePath()) || fs.existsSync(getWorkspaceLayoutSourcePath())) &&
+		!fs.existsSync(getLayoutMarkerPath())
+	) {
 		throw new Error(`Seeded Code layout marker is missing: ${getLayoutMarkerPath()}`);
 	}
 
