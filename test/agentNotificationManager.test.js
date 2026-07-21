@@ -708,3 +708,30 @@ test('manager serializes notification state writes so older unread snapshots can
 
   assert.equal(fake.globalStateValues.get('codexTerminal.agentNotifications.records')[0].isRead, true);
 });
+
+test('manager coalesces overlapping event log polls', async () => {
+  const fake = createFakeVscode({ terminals: [terminalWithPid(1234)] });
+  let readCount = 0;
+  let resolveRead;
+  const manager = createAgentNotificationManager(fake.vscode, {
+    pollIntervalMs: 0,
+    readEvents: () => {
+      readCount += 1;
+      return new Promise((resolve) => {
+        resolveRead = resolve;
+      });
+    },
+  });
+
+  manager.start();
+  const firstPoll = manager.flush();
+  const secondPoll = manager.flush();
+
+  assert.equal(readCount, 1);
+
+  resolveRead(`${JSON.stringify(event())}\n`);
+  await Promise.all([firstPoll, secondPoll]);
+
+  assert.equal(readCount, 1);
+  assert.equal(fake.informationMessages.length, 1);
+});
