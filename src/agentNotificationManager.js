@@ -11,6 +11,7 @@ const {
   encodeReplaceableNotificationMessage,
 } = require('./agentNotificationReplacement');
 const { createAgentNotificationStore } = require('./agentNotificationStore');
+const { createIncrementalJsonlReader } = require('./incrementalJsonlReader');
 
 const DEFAULT_EVENTS_PATH = path.join(
   os.homedir(),
@@ -37,14 +38,6 @@ const SEEN_EVENT_IDS_STORAGE_KEY = 'codexTerminal.agentNotifications.seenEventId
 const SEEN_DEDUPE_KEYS_STORAGE_KEY = 'codexTerminal.agentNotifications.seenDedupeKeys';
 const MAX_SEEN_EVENT_IDS = 1000;
 const MAX_SEEN_DEDUPE_KEYS = 5000;
-
-function readFileDefault(filePath) {
-  try {
-    return fs.readFileSync(filePath, 'utf8');
-  } catch {
-    return '';
-  }
-}
 
 function readSessionRegistryDefault() {
   try {
@@ -212,13 +205,17 @@ function createAgentNotificationManager(vscode, {
   context,
   eventsPath = DEFAULT_EVENTS_PATH,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-  readFile = readFileDefault,
+  readFile,
+  readEvents,
   readSessionRegistry = readSessionRegistryDefault,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
   nativeNotificationBridge,
   store,
 } = {}) {
+  const readEventSource = readEvents || (readFile
+    ? () => readFile(eventsPath)
+    : createIncrementalJsonlReader(eventsPath));
   const initialRecords = readStoredArray(context, RECORDS_STORAGE_KEY);
   const seenEventIds = new Set(readStoredArray(context, SEEN_EVENT_IDS_STORAGE_KEY));
   const seenDedupeKeys = new Set([
@@ -230,6 +227,7 @@ function createAgentNotificationManager(vscode, {
   });
   let statusBarItem;
   let pollTimer;
+  let pendingPoll;
   let started = false;
   let pendingPersist = Promise.resolve();
 
@@ -423,11 +421,19 @@ function createAgentNotificationManager(vscode, {
     }
   }
 
-  async function pollEvents() {
-    const events = parseAgentNotificationJsonl(readFile(eventsPath));
-    for (const event of events) {
-      await ingestEvent(event);
+  function pollEvents() {
+    if (pendingPoll) {
+      return pendingPoll;
     }
+    pendingPoll = (async () => {
+      const events = parseAgentNotificationJsonl(await readEventSource());
+      for (const event of events) {
+        await ingestEvent(event);
+      }
+    })().finally(() => {
+      pendingPoll = undefined;
+    });
+    return pendingPoll;
   }
 
   function start() {
@@ -439,12 +445,12 @@ function createAgentNotificationManager(vscode, {
     updateStatusBar();
     if (pollIntervalMs > 0) {
       pollTimer = setIntervalFn(() => {
-        void pollEvents();
+        void pollEvents().catch(() => undefined);
       }, pollIntervalMs);
     }
   }
 
-  function dispose() {
+  async function dispose() {
     if (pollTimer) {
       clearIntervalFn(pollTimer);
       pollTimer = undefined;
@@ -452,7 +458,8 @@ function createAgentNotificationManager(vscode, {
     statusBarItem?.dispose();
     statusBarItem = undefined;
     started = false;
-    return pendingPersist;
+    await pendingPoll?.catch(() => undefined);
+    await pendingPersist;
   }
 
   async function showAgentNotifications() {
@@ -576,4 +583,5 @@ module.exports = {
   OPEN_LATEST_AGENT_NOTIFICATION_COMMAND,
   SHOW_AGENT_NOTIFICATIONS_COMMAND,
   createAgentNotificationManager,
+  createIncrementalJsonlReader,
 };
